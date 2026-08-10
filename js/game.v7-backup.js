@@ -200,16 +200,8 @@ function dijkstra(sx, sy, maxPm, enemy) {
       var nx = cx + dirs[i][0], ny = cy + dirs[i][1];
       if (cellBlocked(nx, ny) || occupiedBy(nx, ny)) continue;
       var mc = 1;
-      // Tacle Dofus 1.29 (Graviton) : coût basé sur l'agilité relative
       if (Math.abs(cx - enemy.x) + Math.abs(cy - enemy.y) === 1 ||
-          Math.abs(nx - enemy.x) + Math.abs(ny - enemy.y) === 1) {
-        var enAgi = (enemy.stats && enemy.stats.agi) || 0;
-        // L'agilité du déplaceur est dans S (pour le bot c'est S.bot, pour le joueur c'est S.player)
-        // On utilise une valeur par défaut de 30 si pas dispo
-        var myAgi = 30;
-        mc = Math.max(1, Math.round(1 + enAgi / (myAgi + 50)));
-        if (mc > 3) mc = 3; // plafond à 3 PM
-      }
+          Math.abs(nx - enemy.x) + Math.abs(ny - enemy.y) === 1) mc = 2; // zone de contrôle (entrée ou sortie)
       var nk = nx + ',' + ny;
       var nd = best + mc;
       if (dist[nk] === undefined || nd < dist[nk]) { dist[nk] = nd; prev[nk] = cur; }
@@ -595,43 +587,29 @@ function bounceUnit(unit) {
 
 /* ---------------- Dégâts / soins ---------------- */
 function elBonus(caster, el) {
-  // Dofus 1.29: caractéristique × 1% dans le multiplicateur
-  // Neutre/Terre→Force, Feu→Intel, Eau→Chance, Air→Agi
   var s = caster.stats || {};
   var v = el === 'Feu' ? s.intel : el === 'Eau' ? s.chance : el === 'Air' ? s.agi : s.force;
-  return (v || 0) / 100; // retourne le facteur multiplicateur
+  return Math.floor((v || 0) / 5);
 }
 function computeDmg(caster, spell) {
-  // Formule Dofus 1.29 (Graviton) :
-  // dmg = (base + boost) × (100 + caractéristique%) / 100 + flatBonus
-  // puis × (1 + powerPct) si buff actif
   var d = rand(spell.d[0], spell.d[1]);
-  var crit = Math.random() < (0.05 + (caster.stats.agi || 0) * 0.001 + (caster.critUpTurns > 0 ? caster.critUpBonus : 0));
+  var crit = Math.random() < (0.05 + (caster.stats.agi || 0) * 0.0015 + (caster.critUpTurns > 0 ? caster.critUpBonus : 0));
   if (crit) {
     var critMult = 1.5;
     if (caster.critUpTurns > 0) critMult += caster.critUpBonus;
     d = Math.round(d * critMult);
   }
-  // Multiplicateur de caractéristique (Force/Terre, Intel/Feu, Chance/Eau, Agi/Air)
-  var statMult = 1 + elBonus(caster, spell.el);
-  d = Math.round(d * statMult);
-  // Bonus plat (Compulsion, Guide, etc.)
   if (caster.flatTurns > 0) d += caster.flatBonus;
-  // Bonus % (Puissance, Tir Puissant, etc.)
   if (caster.powerPctTurns > 0) d = Math.round(d * (1 + caster.powerPctBonus));
-  return { d: Math.max(1, d), crit: crit };
+  d += elBonus(caster, spell.el);
+  return { d: d, crit: crit };
 }
 function applyDamage(target, d, el) {
-  // Formule Dofus 1.29 : résistances % d'abord, puis fixes, puis armure
   var resisted = false;
   if (target.vulnTurns > 0) d = Math.round(d * (1 + (target.vulnPct || 0) / 100));
-  // Résistance % (combinée : res élémentaire + sagesse/2)
-  var res = (target.res[el] || 0);
-  if (target.stats && target.stats.sag) res += Math.floor(target.stats.sag / 2);
-  if (res > 0) { d = Math.round(d * (1 - res / 100)); resisted = true; }
-  else if (res < 0) { d = Math.round(d * (1 - res / 100)); } // faiblesse amplifie
+  var res = (target.res[el] || 0) + Math.floor((target.stats.sag || 0) / 2);
+  if (res !== 0) { d = Math.round(d * (1 - res / 100)); if (res > 0) resisted = true; }
   d = Math.max(1, d);
-  // Armure (bouclier)
   var shielded = 0;
   if (target.shield > 0) {
     shielded = Math.min(target.shield, d);
@@ -642,9 +620,6 @@ function applyDamage(target, d, el) {
   return { d: d, resisted: resisted, shielded: shielded };
 }
 function healUnit(unit, amount) {
-  // Dofus 1.29 : heal = base × (100 + Intelligence) / 100
-  var intel = unit.stats && unit.stats.intel ? unit.stats.intel : 0;
-  amount = Math.round(amount * (100 + intel) / 100);
   amount = Math.min(amount, unit.maxHp - unit.hp);
   if (amount <= 0) { showMsg(unit.x, unit.y, 'PV max'); return 0; }
   unit.hp += amount;
@@ -671,7 +646,7 @@ function makeUnit(def, isPlayer) {
   for (var k in def.stats) stats[k] = def.stats[k] + (bonus[k] || 0);
   var spells = []; for (var i = 0; i < def.spells.length; i++) spells.push(def.spells[i]);
   return {
-    n: def.n, icon: def.icon, img: def.img || 'clofus.webp', x: isPlayer ? 1 : 12, y: 5,
+    n: def.n, icon: def.icon, img: def.img || 'clofus.webp', x: isPlayer ? 1 : 17, y: 5,
     hp: def.hp + (MAX_LVL - 1) * 5, maxHp: def.hp + (MAX_LVL - 1) * 5,
     pa: 6, paMax: 6, pm: 3, pmMax: 3,
     res: def.res, el: def.el, style: def.style, stats: stats,
@@ -749,18 +724,11 @@ function endPlayerTurn() {
   later(botTurn, 800);
 }
 function paDodge(caster, spell, enemy) {
-  // Dofus 1.29 (Graviton) : esquive probabiliste par PA, à paliers
-  // chance = CEIL(dodgeFactor × PA_restants/PA_total × 50) %
-  var d = Math.abs(caster.x - enemy.x) + Math.abs(caster.y - enemy.y);
-  if (d !== 1) return false; // esquive PA uniquement en mêlée (case adjacente)
-  if (enemy.paDodgeDownTurns > 0) return false; // -esquive PA annule l'esquive
-  var dodgeFactor = 1;
-  var agiCaster = (caster.stats && caster.stats.agi) || 0;
-  var agiEnemy = (enemy.stats && enemy.stats.agi) || 0;
-  if (agiEnemy > 0) dodgeFactor = Math.max(1, agiEnemy / Math.max(1, agiCaster));
-  var paRatio = caster.pa / Math.max(1, caster.paMax);
-  var chance = Math.ceil(dodgeFactor * paRatio * 50);
-  return Math.random() * 100 < chance;
+  if (Math.abs(caster.x - enemy.x) + Math.abs(caster.y - enemy.y) !== 1) return false;
+  var base = spell.min === 1 ? 0.05 : 0.25;
+  var p = base + (enemy.stats.agi || 0) * 0.002;
+  if (enemy.paDodgeDownTurns > 0) p *= 0.5;
+  return Math.random() < p;
 }
 
 function resolveSpell(caster, spell, tx, ty) {
@@ -1270,13 +1238,6 @@ function botAct() {
   var i, sp, best = null, bestScore = -1e9, avg, sc, tx = S.player.x, ty = S.player.y;
   var hpRatio = S.bot.hp / S.bot.maxHp;
 
-  // Recompute max range for positioning checks
-  var fireHi = 3;
-  for (var bi = 0; bi < S.bot.spells.length; bi++) {
-    var bs = S.bot.spells[bi];
-    if ((bs.type === 'dmg' || bs.type === 'debuff') && bs.max > fireHi) fireHi = bs.max;
-  }
-
   // Priority: heal/shield when low, buff when safe, attack otherwise
   var priorityHeal = hpRatio < 0.55 && !S.bot.vitaTurns && !S.bot.rangeUpTurns;
   var priorityBuff = !S.bot.powerPctTurns && !S.bot.flatTurns && S.bot.pa >= 5;
@@ -1376,9 +1337,14 @@ function botAct() {
       later(endBotTurn, 350);
     }
   } else {
-    // No valid action found — end turn
-    log(S.bot.n + ' n\'a plus rien à faire.', 'c');
-    later(endBotTurn, 350);
+    if (S.bot.pa > 1 && !S.over) {
+      // Try once more after short delay (maybe enemy moved)
+      log(S.bot.n + ' hésite…', 'c');
+      later(botAct, 250);
+    } else {
+      log(S.bot.n + ' n\'a plus rien à faire.', 'c');
+      later(endBotTurn, 350);
+    }
   }
 }
 function endBotTurn() {
