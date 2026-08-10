@@ -396,28 +396,121 @@ function animCast(x, y, el) {
 }
 
 function animImpact(x, y, el) {
-  var colors = { Terre: '#c49a3c', Feu: '#ff4422', Eau: '#3399ff', Air: '#88dd44', Neutre: '#999999' };
-  var c = colors[el] || '#ff6b00';
   var cx = isoX(x, y), cy = isoY(x, y);
-  for (var i = 0; i < 4; i++) {
-    (function (angle) {
-      var line = fxEl('line');
-      line.setAttribute('x1', cx); line.setAttribute('y1', cy);
-      line.setAttribute('x2', cx); line.setAttribute('y2', cy);
-      line.setAttribute('stroke', c); line.setAttribute('stroke-width', '3');
-      line.setAttribute('stroke-linecap', 'round');
-      fxLayer().appendChild(line);
-      var start = performance.now();
-      (function tick() {
-        var t = (performance.now() - start) / 300;
-        if (t >= 1) { line.remove(); return; }
-        var len = t * 20;
-        line.setAttribute('x2', cx + Math.cos(angle) * len);
-        line.setAttribute('y2', cy + Math.sin(angle) * len);
-        line.setAttribute('opacity', 1 - t);
-        requestAnimationFrame(tick);
-      })();
-    })(i * Math.PI / 2 + Math.random() * 0.3);
+  if (el === 'Feu') {
+    // Flammes : particules montantes
+    for (var i = 0; i < 8; i++) {
+      (function (angle, dist) {
+        var c = fxEl('circle');
+        c.setAttribute('cx', cx); c.setAttribute('cy', cy);
+        c.setAttribute('r', 3 + Math.random() * 4);
+        c.setAttribute('fill', i % 2 ? '#ff6622' : '#ffaa00');
+        fxLayer().appendChild(c);
+        var start = performance.now();
+        (function tick() {
+          var t = (performance.now() - start) / 400;
+          if (t >= 1) { c.remove(); return; }
+          var len = dist + t * 30;
+          c.setAttribute('cx', cx + Math.cos(angle) * len * 0.6);
+          c.setAttribute('cy', cy + Math.sin(angle) * len * 0.4 - t * 25);
+          c.setAttribute('opacity', 1 - t);
+          c.setAttribute('r', 3 - t * 3);
+          requestAnimationFrame(tick);
+        })();
+      })(Math.random() * Math.PI * 2, 4 + Math.random() * 12);
+    }
+  } else if (el === 'Eau') {
+    // Gouttes qui éclaboussent
+    for (var i = 0; i < 6; i++) {
+      (function (angle) {
+        var c = fxEl('circle');
+        c.setAttribute('cx', cx); c.setAttribute('cy', cy);
+        c.setAttribute('r', 2 + Math.random() * 3);
+        c.setAttribute('fill', '#66bbff');
+        fxLayer().appendChild(c);
+        var start = performance.now();
+        (function tick() {
+          var t = (performance.now() - start) / 350;
+          if (t >= 1) { c.remove(); return; }
+          var len = t * 22;
+          var ax = cx + Math.cos(angle) * len;
+          var ay = cy + Math.sin(angle) * len + t * 10;
+          c.setAttribute('cx', ax); c.setAttribute('cy', ay);
+          c.setAttribute('opacity', 1 - t);
+          requestAnimationFrame(tick);
+        })();
+      })(i * Math.PI / 3 + Math.random() * 0.4);
+    }
+  } else if (el === 'Air') {
+    // Tourbillons
+    for (var i = 0; i < 4; i++) {
+      (function (angle) {
+        var line = fxEl('line');
+        line.setAttribute('x1', cx); line.setAttribute('y1', cy);
+        line.setAttribute('x2', cx); line.setAttribute('y2', cy);
+        line.setAttribute('stroke', i % 2 ? '#aaff44' : '#88dd44');
+        line.setAttribute('stroke-width', '2');
+        line.setAttribute('stroke-linecap', 'round');
+        fxLayer().appendChild(line);
+        var start = performance.now();
+        (function tick() {
+          var t = (performance.now() - start) / 300;
+          if (t >= 1) { line.remove(); return; }
+          var len = t * 24;
+          var swirl = angle + t * 2;
+          line.setAttribute('x2', cx + Math.cos(swirl) * len);
+          line.setAttribute('y2', cy + Math.sin(swirl) * len * 0.5);
+          line.setAttribute('opacity', 1 - t);
+          requestAnimationFrame(tick);
+        })();
+      })(i * Math.PI / 2 + Math.random() * 0.5);
+    }
+  } else if (el === 'Terre') {
+    // Éclats de roche
+    for (var i = 0; i < 6; i++) {
+      (function (angle) {
+        var poly = fxEl('polygon');
+        var size = 4 + Math.random() * 6;
+        var pts = '0,' + (-size) + ' ' + size + ',0 0,' + size + ' ' + (-size) + ',0';
+        poly.setAttribute('points', pts);
+        poly.setAttribute('fill', '#c49a3c');
+        poly.setAttribute('stroke', '#8a6d2b');
+        poly.setAttribute('stroke-width', '1');
+        fxLayer().appendChild(poly);
+        var start = performance.now();
+        (function tick() {
+          var t = (performance.now() - start) / 350;
+          if (t >= 1) { poly.remove(); return; }
+          var len = t * 25;
+          poly.setAttribute('transform', 'translate(' + (cx + Math.cos(angle) * len) + ',' + (cy + Math.sin(angle) * len) + ') rotate(' + t * 120 + ')');
+          poly.setAttribute('opacity', 1 - t);
+          requestAnimationFrame(tick);
+        })();
+      })(i * Math.PI / 3 + Math.random() * 0.3);
+    }
+  } else {
+    // Neutre : éclat simple
+    var c = '#999999';
+    for (var i = 0; i < 4; i++) {
+      (function (angle) {
+        var line = fxEl('line');
+        line.setAttribute('x1', cx); line.setAttribute('y1', cy);
+        line.setAttribute('x2', cx); line.setAttribute('y2', cy);
+        line.setAttribute('stroke', c); line.setAttribute('stroke-width', '3');
+        line.setAttribute('stroke-linecap', 'round');
+        fxLayer().appendChild(line);
+        var start = performance.now();
+        (function tick() {
+          var t = (performance.now() - start) / 300;
+          if (t >= 1) { line.remove(); return; }
+          var len = t * 20;
+          line.setAttribute('x2', cx + Math.cos(angle) * len);
+          line.setAttribute('y2', cy + Math.sin(angle) * len);
+          line.setAttribute('opacity', 1 - t);
+          requestAnimationFrame(tick);
+        })();
+      })(i * Math.PI / 2 + Math.random() * 0.3);
+    }
   }
 }
 
@@ -659,12 +752,55 @@ function render() {
   }
   document.getElementById('btnEnd').disabled = busy || S.turn !== 'p' || S.over;
 }
+/* ---------------- Zones de sorts (Dofus 1.29) ---------------- */
+function getZoneCells(caster, tx, ty, zoneType, radius) {
+  var cells = {};
+  if (zoneType === 'circle' || zoneType === 'aoe') {
+    // Cercle : BFS en distance Manhattan depuis le point d'impact
+    var r = radius || 1;
+    for (var dy = -r; dy <= r; dy++) {
+      for (var dx = -r; dx <= r; dx++) {
+        if (Math.abs(dx) + Math.abs(dy) <= r) {
+          var nx = tx + dx, ny = ty + dy;
+          if (inGrid(nx, ny) && !cellBlocked(nx, ny)) cells[nx + ',' + ny] = 1;
+        }
+      }
+    }
+  } else if (zoneType === 'line') {
+    // Ligne : direction caster→cible, 'radius' cellules au-delà
+    var dx = tx - caster.x, dy = ty - caster.y;
+    var steps = Math.max(Math.abs(dx), Math.abs(dy));
+    if (steps === 0) { cells[tx + ',' + ty] = 1; return cells; }
+    var len = radius || 3;
+    var sx = dx / steps, sy = dy / steps;
+    for (var i = 0; i <= len; i++) {
+      var lx = Math.round(caster.x + sx * (steps + i));
+      var ly = Math.round(caster.y + sy * (steps + i));
+      if (inGrid(lx, ly) && !cellBlocked(lx, ly)) cells[lx + ',' + ly] = 1;
+    }
+  } else if (zoneType === 'cross') {
+    // Croix : 4 directions cardinales depuis le point d'impact
+    var len = radius || 2;
+    var dirs = [[1,0],[-1,0],[0,1],[0,-1]];
+    cells[tx + ',' + ty] = 1;
+    for (var d = 0; d < 4; d++) {
+      for (var i = 1; i <= len; i++) {
+        var cx = tx + dirs[d][0] * i, cy = ty + dirs[d][1] * i;
+        if (inGrid(cx, cy) && !cellBlocked(cx, cy)) cells[cx + ',' + cy] = 1;
+      }
+    }
+  }
+  return cells;
+}
+
 function spellTargets(sp) {
   var out = {};
   var d = dist(S.player, S.bot);
   if (sp.type === 'dmg' || sp.type === 'debuff' || sp.type === 'push') {
     var pmax = pMax(sp, S.player);
-    if (sp.aoe) {
+    if (sp.aoe || sp.zone) {
+      // Zone : on met toutes les cellules en portée en orange,
+      // le clic sur une cellule déclenche la zone
       for (var y = 0; y < ROWS; y++) {
         for (var x = 0; x < COLS; x++) {
           var d2 = Math.abs(S.player.x - x) + Math.abs(S.player.y - y);
@@ -1015,6 +1151,16 @@ function resolveSpell(caster, spell, tx, ty) {
     render();
     return false;
   }
+  // Échec critique (Dofus 1.29)
+  if (spell.critFailRate && Math.random() * 100 < spell.critFailRate) {
+    log('<span class=\"' + whoCls + '\">💥 ' + caster.n + '</span> rate <b>' + spell.n + '</b> — échec critique !', whoCls);
+    sfx('error');
+    showMsg(caster.x, caster.y, '💥 ÉCHEC');
+    if (spell.endsTurnOnFailure) { caster.pa = 0; caster.pm = 0; }
+    caster.pa -= spell.cost;
+    render();
+    return false;
+  }
   caster.pa -= spell.cost;
 
   if (spell.type === 'self') {
@@ -1132,14 +1278,26 @@ function resolveSpell(caster, spell, tx, ty) {
     return true;
   }
 
-  // dégâts — simple ou zone (rayon)
+  // dégâts — simple ou zone (cercle/ligne/croix)
   var hits = [];
   if (spell.selfZone) {
     // Zone centrée sur le lanceur (rayon 1) — touche l'adversaire s'il est adjacent
     if (Math.abs(caster.x - target.x) + Math.abs(caster.y - target.y) <= 1) hits.push(target);
-  } else if (spell.aoe) {
-    if (Math.abs(target.x - tx) + Math.abs(target.y - ty) <= spell.aoe) hits.push(target);
-    if (caster !== target && Math.abs(caster.x - tx) + Math.abs(caster.y - ty) <= spell.aoe) hits.push(caster);
+  } else if (spell.aoe || spell.zone) {
+    // Détermine le type de zone : aoe=1 → cercle, zone='line' → ligne, zone='cross' → croix
+    var zType = spell.zone || 'circle';
+    var zRadius = spell.aoe || spell.zoneRadius || 1;
+    var zoneCells = getZoneCells(caster, tx, ty, zType, zRadius);
+    // Collecte les unités touchées
+    var allTargets = [S.player, S.bot];
+    // Ajoute les minions
+    if (S.player.minions) allTargets = allTargets.concat(S.player.minions);
+    if (S.bot.minions) allTargets = allTargets.concat(S.bot.minions);
+    for (var ti = 0; ti < allTargets.length; ti++) {
+      var t = allTargets[ti];
+      if (t.hp <= 0) continue;
+      if (zoneCells[t.x + ',' + t.y]) hits.push(t);
+    }
   } else {
     hits.push(target);
   }
