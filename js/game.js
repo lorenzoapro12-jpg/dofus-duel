@@ -1,0 +1,1307 @@
+
+'use strict';
+/* ============================================================
+   Dofus Duel — combat 1v1 tactique (hommage à Dofus 1.29)
+   Classes jouables : Iop / Cra — arsenal complet 1.29
+   Adversaires : Iop / Cra
+   Caractéristiques 1.29 : Force / Intelligence / Chance /
+   Agilité / Vitalité / Sagesse — +1 dégât de l'élément par
+   tranche de 5 points, esquive & critique basés sur l'Agilité,
+   résistance issue de la Sagesse, initiative calculée des stats.
+   Sorts appris par niveau (1, 3, 5 … 53) comme en 1.29.
+   Mécaniques : PA/PM (6/3), portées, ligne de vue, esquive de
+   PM en mêlée, esquive de PA, résistances élémentaires,
+   boucliers, poison, vulnérabilité, immobilisation, zones,
+   progression XP/kamas.
+   ============================================================ */
+
+var COLS = 13, ROWS = 9;
+var OBST = { '3,1':1, '9,1':1, '6,2':1, '5,3':1, '7,5':1, '6,6':1, '3,7':1, '9,7':1 };
+
+/* ---------------- Progression ---------------- */
+var PROG = loadProg();
+function loadProg() {
+  try {
+    var p = JSON.parse(localStorage.getItem('dofus_prog'));
+    if (p && p.lvl) return { lvl: p.lvl, xp: p.xp || 0, kamas: p.kamas || 0 };
+  } catch (e) {}
+  return { lvl: 1, xp: 0, kamas: 0 };
+}
+function saveProg() { try { localStorage.setItem('dofus_prog', JSON.stringify(PROG)); } catch (e) {} }
+function xpNeed() { return 50 + (PROG.lvl - 1) * 25; }
+function addRewards(xp, kamas) {
+  PROG.xp += xp; PROG.kamas += kamas;
+  while (PROG.xp >= xpNeed() && PROG.lvl < 200) { PROG.xp -= xpNeed(); PROG.lvl++; }
+  if (PROG.lvl >= 200) PROG.xp = 0;
+  saveProg();
+}
+function lvlBonus() { return { hp: (PROG.lvl - 1) * 5, main: (PROG.lvl - 1) }; }
+function statBonus(mainStat, n) {
+  var s = { force: 0, intel: 0, chance: 0, agi: 0, vita: 0, sag: 0 };
+  if (mainStat && n > 0) s[mainStat] = n;
+  return s;
+}
+function pMax(sp, u) {
+  var m = sp.max;
+  if ((sp.type === 'dmg' || sp.type === 'debuff' || sp.type === 'push') && u.rangeUpTurns > 0) m = sp.max + u.rangeUpBonus;
+  if (u.subRangeTurns > 0) m = Math.max(sp.min, m - u.subRangeBonus);
+  return m;
+}
+
+/* ---------------- État ---------------- */
+var grid = [];
+var cellEls = [];
+var unitP = null, unitB = null;
+var S = null;
+var busy = false;
+var SEL = { cls: 'iop', adv: 'cra' };
+
+/* Timers de tour — annulables pour éviter les courses entre parties */
+var turnTimers = [];
+function later(fn, ms) { var id = setTimeout(function () { fn(); }, ms); turnTimers.push(id); return id; }
+function clearTurnTimers() { for (var i = 0; i < turnTimers.length; i++) clearTimeout(turnTimers[i]); turnTimers = []; }
+
+/* ---------------- Utilitaires ---------------- */
+function inGrid(x, y) { return x >= 0 && x < COLS && y >= 0 && y < ROWS; }
+function dist(a, b) { return Math.abs(a.x - b.x) + Math.abs(a.y - b.y); }
+function rand(min, max) { return Math.floor(Math.random() * (max - min + 1)) + min; }
+function cellBlocked(x, y) { return !inGrid(x, y) || grid[y][x] === 1; }
+function occupiedBy(x, y) {
+  if (S.player.x === x && S.player.y === y) return true;
+  if (S.bot.x === x && S.bot.y === y) return true;
+  return false;
+}
+function log(msg, cls) {
+  var el = document.getElementById('log');
+  var d = document.createElement('div');
+  if (cls) d.className = cls;
+  d.innerHTML = msg;
+  el.appendChild(d);
+  while (el.children.length > 60) el.removeChild(el.firstChild);
+  el.scrollTop = el.scrollHeight;
+}
+
+/* ---------------- Fiches de sorts & aide ---------------- */
+function formatSpell(sp) {
+  var parts = [];
+  parts.push(sp.cost + ' PA');
+  if (sp.type !== 'self') parts.push('Portée ' + sp.min + (sp.max > sp.min ? '-' + sp.max : ''));
+  if (sp.type === 'dmg' || sp.type === 'debuff') parts.push(sp.los ? 'Ligne de vue requise' : 'Sans ligne de vue');
+  if (sp.el) parts.push(sp.el);
+  if (sp.lvl) parts.push('Niv ' + sp.lvl);
+  if (sp.type === 'dmg') {
+    parts.push(sp.d[0] + '-' + sp.d[1] + ' dégâts' + (sp.d2 ? ' + ' + sp.d2[0] + '-' + sp.d2[1] + ' ' + sp.el2 : ''));
+    if (sp.aoe) parts.push('Zone (rayon ' + sp.aoe + ')');
+    if (sp.push) parts.push('💨 repousse de ' + sp.push + (sp.push > 1 ? ' cases' : ' case'));
+    if (sp.steal) parts.push('🩸 vole ' + (sp.steal === 1 ? '100%' : Math.round(sp.steal * 100) + '%') + ' des dégâts en PV');
+    if (sp.slow) parts.push('❄️ la cible a -1 PM');
+    if (sp.paDodgeDown) parts.push('🎯 la cible esquive moins les PA');
+    if (sp.subRange) parts.push('👁️ -' + sp.subRange + ' portée cible');
+    if (sp.poison) parts.push('☠️ poison ' + sp.poison.d + ' PV/tour x' + sp.poison.turns);
+    if (sp.flat) parts.push('💪 +' + sp.flat.v + ' dégâts ' + sp.flat.turns + ' tours');
+  } else if (sp.type === 'self') {
+    if (sp.self === 'heal') parts.push('Soigne ' + sp.d[0] + '-' + sp.d[1] + ' PV');
+    else if (sp.self === 'flat') parts.push('+' + sp.flat.v + ' dégâts' + (sp.pct ? ' et +' + Math.round(sp.pct.v * 100) + '%' : '') + ' pendant ' + sp.flat.turns + ' tour' + (sp.flat.turns > 1 ? 's' : ''));
+    else if (sp.self === 'powerPct') parts.push('+' + Math.round(sp.pct.v * 100) + '% dégâts pendant ' + sp.pct.turns + ' tours');
+    else if (sp.self === 'critUp') parts.push('+15% coups critiques et +20% dégâts pendant 3 tours');
+    else if (sp.self === 'vita') parts.push('+' + sp.vita.v + ' PV max pendant ' + sp.vita.turns + ' tours');
+    else if (sp.self === 'rangeUp') parts.push('+2 portée pendant 3 tours');
+  } else if (sp.type === 'push') {
+    parts.push('💨 repousse de ' + sp.push + (sp.push > 1 ? ' cases' : ' case'));
+  } else if (sp.type === 'tp') {
+    parts.push('Téléportation vers une case en portée');
+  } else if (sp.type === 'debuff') {
+    if (sp.vuln) parts.push('💔 -' + sp.vuln.pct + '% résistances ' + sp.vuln.turns + ' tours');
+  }
+  if (sp.desc) parts.push(sp.desc);
+  return parts.join(' · ');
+}
+function showSpellInfo(sp, owner) {
+  var el = document.getElementById('spellInfo');
+  if (!sp) {
+    el.className = 'placeholder';
+    el.innerHTML = 'Survole ou sélectionne un sort pour voir ses détails (PA, portée, ligne de vue…).';
+    return;
+  }
+  el.className = '';
+  el.innerHTML = '<div class="siHead">' + sp.i + ' ' + sp.n +
+    '<span class="siCost">' + sp.cost + ' PA</span>' +
+    (owner ? '<span style="color:#ffa8a8;font-size:10px;margin-left:8px">sort de ' + owner + '</span>' : '') +
+    '</div><div class="siBody">' + formatSpell(sp) + '</div>';
+}
+function updateHint() {
+  var el = document.getElementById('hint');
+  if (!S || S.over) { el.textContent = ''; return; }
+  if (S.turn === 'b') {
+    el.textContent = '🤖 ' + S.bot.n + ' joue… suis son sort dans le journal ci-dessous.';
+    return;
+  }
+  if (S.phase === 'spell' && S.spell) {
+    var sp = S.spell;
+    var t = '🟠 Clique une case <b>orange</b> pour lancer « ' + sp.n + ' ».';
+    if (sp.los) t += ' Ce sort exige une <b>ligne de vue</b> : les arbres bloquent (cible rouge = bloquée).';
+    el.innerHTML = t;
+    return;
+  }
+  if (S.player.pm > 0 && S.player.pa > 0) {
+    el.innerHTML = '🟢 Clique une case <b>verte</b> pour te déplacer (chiffre = PM nécessaires, liseré rouge = zone de danger à 2 PM). Puis choisis un sort ci-dessous.';
+  } else if (S.player.pm > 0) {
+    el.innerHTML = '🟢 Clique une case <b>verte</b> pour te déplacer.';
+  } else if (S.player.pa > 0) {
+    el.innerHTML = '🟠 Choisis un sort dans la barre ci-dessous, puis clique une cible orange.';
+  } else {
+    el.textContent = '⏭ Plus de PA ni de PM — le tour se termine automatiquement.';
+  }
+}
+function buffsOf(u) {
+  var b = [];
+  if (u.shield > 0) b.push('🛡️' + u.shield);
+  if (u.wrathTurns > 0) b.push('🔥' + u.wrathTurns);
+  if (u.powerPctTurns > 0) b.push('🔱' + u.powerPctTurns);
+  if (u.flatTurns > 0) b.push('💪' + u.flatTurns);
+  if (u.critUpTurns > 0) b.push('🎯' + u.critUpTurns);
+  if (u.vitaTurns > 0) b.push('💚' + u.vitaTurns);
+  if (u.rangeUpTurns > 0) b.push('👁️' + u.rangeUpTurns);
+  if (u.slowTurns > 0) b.push('❄️');
+  if (u.paDodgeDownTurns > 0) b.push('🎯-esq');
+  if (u.subRangeTurns > 0) b.push('👁️-port');
+  if (u.vulnTurns > 0) b.push('💔' + u.vulnTurns);
+  if (u.poisonTurns > 0) b.push('☠️' + u.poisonTurns);
+  if (u.immobilized) b.push('🪤');
+  return b;
+}
+function setUnitBuffs(unit, arr) {
+  var box = unit.querySelector('.uBuffs');
+  if (!box) {
+    box = document.createElement('div');
+    box.className = 'uBuffs';
+    unit.appendChild(box);
+  }
+  box.innerHTML = '';
+  for (var i = 0; i < arr.length; i++) {
+    var s = document.createElement('span');
+    s.textContent = arr[i];
+    box.appendChild(s);
+  }
+}
+
+/* ---------------- Ligne de vue (Bresenham) ---------------- */
+function los(ax, ay, bx, by) {
+  var x0 = ax, y0 = ay, x1 = bx, y1 = by;
+  var dx = Math.abs(x1 - x0), dy = Math.abs(y1 - y0);
+  var sx = x0 < x1 ? 1 : -1, sy = y0 < y1 ? 1 : -1;
+  var err = dx - dy;
+  while (true) {
+    if (x0 === x1 && y0 === y1) return true;
+    if ((x0 !== ax || y0 !== ay) && grid[y0][x0] === 1) return false;
+    var e2 = 2 * err;
+    if (e2 > -dy) { err -= dy; x0 += sx; }
+    if (e2 < dx) { err += dx; y0 += sy; }
+  }
+}
+
+/* ---------------- Chemins pondérés (esquive de PM) ---------------- */
+function dijkstra(sx, sy, maxPm, enemy) {
+  var dist = {}, prev = {};
+  dist[sx + ',' + sy] = 0; prev[sx + ',' + sy] = null;
+  var done = {};
+  var dirs = [[1,0],[-1,0],[0,1],[0,-1]];
+  while (true) {
+    var cur = null, best = Infinity;
+    for (var k in dist) { if (!done[k] && dist[k] < best) { best = dist[k]; cur = k; } }
+    if (!cur || best > maxPm) break;
+    done[cur] = true;
+    var c = cur.split(','); var cx = parseInt(c[0], 10), cy = parseInt(c[1], 10);
+    for (var i = 0; i < 4; i++) {
+      var nx = cx + dirs[i][0], ny = cy + dirs[i][1];
+      if (cellBlocked(nx, ny) || occupiedBy(nx, ny)) continue;
+      var mc = 1;
+      if (Math.abs(nx - enemy.x) + Math.abs(ny - enemy.y) === 1) mc = 2; // zone de contrôle
+      var nk = nx + ',' + ny;
+      var nd = best + mc;
+      if (dist[nk] === undefined || nd < dist[nk]) { dist[nk] = nd; prev[nk] = cur; }
+    }
+  }
+  return { dist: dist, prev: prev };
+}
+function reachCosts(sx, sy, pm, enemy) {
+  var r = dijkstra(sx, sy, pm, enemy);
+  var out = {};
+  for (var k in r.dist) { if (r.dist[k] > 0 && r.dist[k] <= pm) out[k] = r.dist[k]; }
+  return out;
+}
+function pathToCosts(sx, sy, tx, ty, pm, enemy) {
+  var r = dijkstra(sx, sy, pm, enemy);
+  var key = tx + ',' + ty;
+  if (r.dist[key] === undefined) return null;
+  var path = [], cur = key;
+  while (cur) {
+    var c = cur.split(',');
+    path.unshift([parseInt(c[0], 10), parseInt(c[1], 10)]);
+    cur = r.prev[cur];
+  }
+  path.shift();
+  return { path: path, cost: r.dist[key] };
+}
+
+/* ---------------- Audio ---------------- */
+var actx = null, mg = null, sfxg = null, musicOn = true, musicTimer = null, beatN = 0;
+function initAudio() {
+  if (actx) {
+    if (actx.state === 'suspended') actx.resume();
+    return;
+  }
+  try {
+    actx = new (window.AudioContext || window.webkitAudioContext)();
+    mg = actx.createGain(); mg.gain.value = 0.40; mg.connect(actx.destination);
+    sfxg = actx.createGain(); sfxg.gain.value = 2.5; sfxg.connect(actx.destination);
+    musicTimer = setInterval(musicTick, 150);
+  } catch (e) {}
+}
+function tone(f, dur, vol, type, slide, dest) {
+  if (!actx) return;
+  var t = actx.currentTime;
+  var o = actx.createOscillator(), g = actx.createGain();
+  o.type = type || 'square';
+  o.frequency.setValueAtTime(f, t);
+  if (slide) o.frequency.exponentialRampToValueAtTime(Math.max(30, f + slide), t + dur);
+  g.gain.setValueAtTime(vol, t);
+  g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+  o.connect(g); g.connect(dest || sfxg);
+  o.start(t); o.stop(t + dur + 0.03);
+}
+function sfx(name) {
+  if (!actx || !musicOn) return;
+  if (name === 'hit') tone(190, 0.13, 0.35, 'square', -120);
+  else if (name === 'crit') { tone(660, 0.08, 0.30, 'square'); tone(990, 0.14, 0.26, 'square'); }
+  else if (name === 'heal') tone(520, 0.14, 0.22, 'triangle', 160);
+  else if (name === 'cast') tone(420, 0.10, 0.18, 'triangle');
+  else if (name === 'move') tone(300, 0.07, 0.14, 'sine');
+  else if (name === 'buff') tone(300, 0.12, 0.22, 'triangle', 220);
+  else if (name === 'shield') tone(240, 0.14, 0.20, 'triangle', -60);
+  else if (name === 'freeze') tone(900, 0.25, 0.22, 'sine', -520);
+  else if (name === 'push') tone(220, 0.16, 0.24, 'sawtooth', -110);
+  else if (name === 'poison') { tone(320, 0.28, 0.22, 'sawtooth', -220); tone(160, 0.30, 0.18, 'square', -80); }
+  else if (name === 'error') tone(140, 0.10, 0.22, 'square');
+  else if (name === 'win') { tone(523, 0.14, 0.28, 'square'); setTimeout(function(){ tone(659, 0.14, 0.28, 'square'); }, 140);
+    setTimeout(function(){ tone(784, 0.14, 0.28, 'square'); }, 280); setTimeout(function(){ tone(1046, 0.3, 0.28, 'square'); }, 420); }
+  else if (name === 'lose') { tone(320, 0.3, 0.26, 'sawtooth', -180); setTimeout(function(){ tone(160, 0.5, 0.26, 'sawtooth', -80); }, 320); }
+}
+function musicTick() {
+  if (!actx || !musicOn) return;
+  var CHORDS = [[220, 261.6, 329.6], [174.6, 220, 261.6], [196, 261.6, 329.6], [196, 246.9, 293.7]];
+  var b = beatN % 16;
+  var ch = CHORDS[Math.floor(b / 4)];
+  if (b % 4 === 0) tone(ch[0] / 2, 0.16, 0.16, 'sine', 0, mg);
+  if (b % 4 === 2) tone(ch[2], 0.12, 0.07, 'triangle', 0, mg);
+  if (b % 8 === 0) tone(120, 0.10, 0.20, 'sine', -90, mg);
+  if (b % 2 === 1) tone(6000, 0.03, 0.02, 'square', 0, mg);
+  beatN++;
+}
+/* Musiques officielles Dofus 1.29 (MP3, assets/music) — bascule menu/combat */
+var MUS_IDS = ['musMenu', 'musFight'];
+function playMusic(id) {
+  if (!musicOn) return;
+  try {
+    for (var i = 0; i < MUS_IDS.length; i++) {
+      var el = document.getElementById(MUS_IDS[i]);
+      if (!el || !el.pause || !el.play) continue;
+      if (MUS_IDS[i] === id) {
+        if (el.paused) { var p = el.play(); if (p && p.catch) p.catch(function () {}); }
+      } else { el.pause(); }
+    }
+  } catch (e) {}
+}
+function stopMusic() {
+  try {
+    for (var i = 0; i < MUS_IDS.length; i++) {
+      var el = document.getElementById(MUS_IDS[i]);
+      if (el && el.pause) el.pause();
+    }
+  } catch (e) {}
+}
+document.getElementById('btnSound').onclick = function () {
+  initAudio();
+  musicOn = !musicOn;
+  this.textContent = musicOn ? '🔊' : '🔇';
+  if (mg) mg.gain.value = musicOn ? 0.40 : 0;
+  if (musicOn) playMusic(S && !S.over ? 'musFight' : 'musMenu');
+  else stopMusic();
+};
+
+/* ---------------- Rendu ---------------- */
+function buildGrid() {
+  var g = document.getElementById('grid');
+  g.innerHTML = '';
+  grid = []; cellEls = [];
+  for (var y = 0; y < ROWS; y++) {
+    grid.push([]); cellEls.push([]);
+    for (var x = 0; x < COLS; x++) {
+      grid[y].push(OBST[x + ',' + y] ? 1 : 0);
+      var c = document.createElement('div');
+      c.className = 'cell ' + ((x + y) % 2 ? 'odd' : 'even');
+      c.setAttribute('data-x', x); c.setAttribute('data-y', y);
+      if (grid[y][x] === 1) {
+        c.className += ' obs';
+        var o = document.createElement('div');
+        o.className = 'obstacle';
+        o.textContent = ((x * 7 + y * 13) % 3 === 0) ? '🌲' : ((x * 5 + y * 11) % 3 === 0) ? '🪨' : '🌳';
+        c.appendChild(o);
+      }
+      g.appendChild(c);
+      cellEls[y].push(c);
+    }
+  }
+  unitP = document.createElement('div');
+  unitP.className = 'unit uP';
+  unitP.innerHTML = '<span class="uIco"></span><div class="hpbar"><i></i></div><div class="hplabel"></div>';
+  unitB = document.createElement('div');
+  unitB.className = 'unit uB';
+  unitB.innerHTML = '<span class="uIco"></span><div class="hpbar"><i></i></div><div class="hplabel"></div>';
+}
+function placeUnit(unit, x, y) { cellEls[y][x].appendChild(unit); }
+function setUnitHp(unit, cur, max) {
+  unit.querySelector('.hpbar i').style.width = Math.max(0, cur / max * 100) + '%';
+  unit.querySelector('.hplabel').textContent = cur + ' / ' + max;
+}
+function dots(val, max, cls) {
+  var s = '';
+  for (var i = 0; i < max; i++) s += '<div class="dot ' + cls + (i < val ? '' : ' off') + '"></div>';
+  return s;
+}
+function renderProg() {
+  document.getElementById('progLvl').textContent = 'Niv ' + PROG.lvl;
+  document.getElementById('xpFill').style.width = Math.min(100, PROG.xp / xpNeed() * 100) + '%';
+  document.getElementById('progKamas').textContent = PROG.kamas + ' k';
+}
+function render() {
+  if (!S) return;
+  var i, k, x, y;
+
+  placeUnit(unitP, S.player.x, S.player.y);
+  placeUnit(unitB, S.bot.x, S.bot.y);
+  setUnitHp(unitP, S.player.hp, S.player.maxHp);
+  setUnitHp(unitB, S.bot.hp, S.bot.maxHp);
+
+  var reach = {}, targets = {}, rangeSet = {}, nlosSet = {};
+  if (!busy && S.turn === 'p' && !S.over) {
+    if (S.phase === 'move' && S.player.pm > 0) reach = reachCosts(S.player.x, S.player.y, S.player.pm, S.bot);
+    if (S.phase === 'spell' && S.spell) {
+      var sp = S.spell;
+      targets = spellTargets(sp);
+      var pmax = pMax(sp, S.player);
+      for (var yy = 0; yy < ROWS; yy++) {
+        for (var xx = 0; xx < COLS; xx++) {
+          var dd = Math.abs(S.player.x - xx) + Math.abs(S.player.y - yy);
+          if (dd >= sp.min && dd <= pmax) rangeSet[xx + ',' + yy] = 1;
+        }
+      }
+      if ((sp.type === 'dmg' || sp.type === 'debuff') &&
+          !targets[S.bot.x + ',' + S.bot.y] && sp.los && !sp.aoe) {
+        var db = dist(S.player, S.bot);
+        if (db >= sp.min && db <= pmax && !los(S.player.x, S.player.y, S.bot.x, S.bot.y)) {
+          nlosSet[S.bot.x + ',' + S.bot.y] = 1;
+        }
+      }
+    }
+  }
+  for (y = 0; y < ROWS; y++) {
+    for (x = 0; x < COLS; x++) {
+      var c = cellEls[y][x];
+      c.classList.remove('mv', 'sp', 'range', 'nlos', 'danger');
+      var lbl = c.querySelector('.costLabel');
+      if (lbl) lbl.remove();
+      if (grid[y][x] === 1) continue;
+      k = x + ',' + y;
+      if (reach[k]) {
+        c.classList.add('mv');
+        if (reach[k] > 1) {
+          var lb = document.createElement('span');
+          lb.className = 'costLabel';
+          lb.textContent = reach[k];
+          c.appendChild(lb);
+          c.classList.add('danger');
+        }
+      } else if (targets[k]) c.classList.add('sp');
+      else if (nlosSet[k]) c.classList.add('nlos');
+      else if (rangeSet[k]) c.classList.add('range');
+    }
+  }
+
+  setUnitBuffs(unitP, buffsOf(S.player));
+  setUnitBuffs(unitB, buffsOf(S.bot));
+
+  // HUD joueur
+  document.getElementById('pName').textContent = S.player.icon + ' ' + S.player.n;
+  document.getElementById('pBar').style.width = Math.max(0, S.player.hp / S.player.maxHp * 100) + '%';
+  document.getElementById('pHp').textContent = S.player.hp + ' / ' + S.player.maxHp;
+  document.getElementById('pPa').innerHTML = dots(S.player.pa, S.player.paMax, 'pa');
+  document.getElementById('pPm').innerHTML = dots(S.player.pm, S.player.pmMax, 'pm');
+  document.getElementById('pPaNum').textContent = S.player.pa + '/' + S.player.paMax;
+  document.getElementById('pPmNum').textContent = S.player.pm + '/' + S.player.pmMax;
+  var buffs = '';
+  if (S.player.shield > 0) buffs += '<span class="shieldBadge">🛡️' + S.player.shield + '</span> ';
+  if (S.player.wrathTurns > 0) buffs += '🔥' + S.player.wrathTurns + ' ';
+  if (S.player.powerPctTurns > 0) buffs += '🔱' + S.player.powerPctTurns + ' ';
+  if (S.player.flatTurns > 0) buffs += '💪' + S.player.flatTurns + ' ';
+  if (S.player.critUpTurns > 0) buffs += '🎯' + S.player.critUpTurns + ' ';
+  if (S.player.vitaTurns > 0) buffs += '💚' + S.player.vitaTurns + ' ';
+  if (S.player.rangeUpTurns > 0) buffs += '👁️' + S.player.rangeUpTurns + ' ';
+  if (S.player.slowTurns > 0) buffs += '❄️-Ralenti ';
+  if (S.player.paDodgeDownTurns > 0) buffs += '🎯-esq ';
+  if (S.player.subRangeTurns > 0) buffs += '👁️-port ';
+  if (S.player.vulnTurns > 0) buffs += '💔' + S.player.vulnTurns + ' ';
+  if (S.player.poisonTurns > 0) buffs += '☠️' + S.player.poisonTurns + ' ';
+  if (S.player.immobilized) buffs += '🪤Immobile ';
+  document.getElementById('pBuffs').innerHTML = buffs;
+  document.getElementById('bName').textContent = S.bot.icon + ' ' + S.bot.n;
+  document.getElementById('bBar').style.width = Math.max(0, S.bot.hp / S.bot.maxHp * 100) + '%';
+  document.getElementById('bHp').textContent = S.bot.hp + ' / ' + S.bot.maxHp;
+  var bb = '';
+  if (S.bot.shield > 0) bb += '<span class="shieldBadge">🛡️' + S.bot.shield + '</span> ';
+  if (S.bot.wrathTurns > 0) bb += '🔥' + S.bot.wrathTurns + ' ';
+  if (S.bot.powerPctTurns > 0) bb += '🔱' + S.bot.powerPctTurns + ' ';
+  if (S.bot.flatTurns > 0) bb += '💪' + S.bot.flatTurns + ' ';
+  if (S.bot.critUpTurns > 0) bb += '🎯' + S.bot.critUpTurns + ' ';
+  if (S.bot.vitaTurns > 0) bb += '💚' + S.bot.vitaTurns + ' ';
+  if (S.bot.rangeUpTurns > 0) bb += '👁️' + S.bot.rangeUpTurns + ' ';
+  if (S.bot.slowTurns > 0) bb += '❄️-Ralenti ';
+  if (S.bot.paDodgeDownTurns > 0) bb += '🎯-esq ';
+  if (S.bot.subRangeTurns > 0) bb += '👁️-port ';
+  if (S.bot.vulnTurns > 0) bb += '💔' + S.bot.vulnTurns + ' ';
+  if (S.bot.poisonTurns > 0) bb += '☠️' + S.bot.poisonTurns + ' ';
+  document.getElementById('bBuffs').innerHTML = bb;
+  var tb = document.getElementById('turnBanner');
+  if (S.over) { tb.textContent = 'FIN DU COMBAT'; tb.className = ''; }
+  else if (S.turn === 'p') { tb.textContent = 'Tour ' + S.round + ' — À TON TOUR'; tb.className = 'mine'; }
+  else { tb.textContent = 'Tour ' + S.round + ' — ' + S.bot.n + ' JOUE…'; tb.className = 'theirs'; }
+  updateHint();
+
+  var btns = document.querySelectorAll('.spellBtn');
+  for (i = 0; i < btns.length; i++) {
+    var sp = S.player.spells[i];
+    var dis = busy || S.turn !== 'p' || S.player.pa < sp.cost || S.over;
+    btns[i].disabled = dis;
+    btns[i].classList.toggle('active', S.phase === 'spell' && S.spell === sp);
+  }
+  document.getElementById('btnEnd').disabled = busy || S.turn !== 'p' || S.over;
+  renderProg();
+}
+function spellTargets(sp) {
+  var out = {};
+  var d = dist(S.player, S.bot);
+  if (sp.type === 'dmg' || sp.type === 'debuff' || sp.type === 'push') {
+    var pmax = pMax(sp, S.player);
+    if (sp.aoe) {
+      for (var y = 0; y < ROWS; y++) {
+        for (var x = 0; x < COLS; x++) {
+          var d2 = Math.abs(S.player.x - x) + Math.abs(S.player.y - y);
+          if (d2 >= sp.min && d2 <= pmax) out[x + ',' + y] = 1;
+        }
+      }
+    } else if (sp.type === 'push' && d >= sp.min && d <= pmax) {
+      out[S.bot.x + ',' + S.bot.y] = 1;
+    } else if (d >= sp.min && d <= pmax && (!sp.los || los(S.player.x, S.player.y, S.bot.x, S.bot.y))) {
+      out[S.bot.x + ',' + S.bot.y] = 1;
+    }
+  } else if (sp.type === 'tp') {
+    for (var y2 = 0; y2 < ROWS; y2++) {
+      for (var x2 = 0; x2 < COLS; x2++) {
+        var d3 = Math.abs(S.player.x - x2) + Math.abs(S.player.y - y2);
+        if (d3 >= sp.min && d3 <= sp.max && !cellBlocked(x2, y2) && !occupiedBy(x2, y2)) out[x2 + ',' + y2] = 1;
+      }
+    }
+  }
+  return out;
+}
+function showDmg(unit, x, y, text, cls) {
+  var d = document.createElement('div');
+  d.className = 'dmg' + (cls ? ' ' + cls : '');
+  d.textContent = text;
+  cellEls[y][x].appendChild(d);
+  setTimeout(function () { if (d.parentNode) d.parentNode.removeChild(d); }, 1000);
+}
+function showMsg(x, y, text) {
+  var d = document.createElement('div');
+  d.className = 'msg';
+  d.textContent = text;
+  cellEls[y][x].appendChild(d);
+  setTimeout(function () { if (d.parentNode) d.parentNode.removeChild(d); }, 1200);
+}
+function flashCell(x, y) {
+  var c = cellEls[y][x];
+  c.classList.remove('flash');
+  void c.offsetWidth;
+  c.classList.add('flash');
+}
+function bounceUnit(unit) {
+  unit.classList.remove('bounce');
+  void unit.offsetWidth;
+  unit.classList.add('bounce');
+}
+
+/* ---------------- Dégâts / soins ---------------- */
+function elBonus(caster, el) {
+  var s = caster.stats || {};
+  var v = el === 'Feu' ? s.intel : el === 'Eau' ? s.chance : el === 'Air' ? s.agi : s.force;
+  return Math.floor((v || 0) / 5);
+}
+function computeDmg(caster, spell) {
+  var d = rand(spell.d[0], spell.d[1]);
+  var crit = Math.random() < (0.05 + (caster.stats.agi || 0) * 0.0015 + (caster.critUpTurns > 0 ? caster.critUpBonus : 0));
+  if (crit) d = Math.round(d * 1.5);
+  if (caster.wrathTurns > 0) d = Math.round(d * (caster.wrathBonus || 1.25));
+  if (caster.powerPctTurns > 0) d = Math.round(d * (1 + caster.powerPctBonus));
+  if (caster.flatTurns > 0) d += caster.flatBonus;
+  d += elBonus(caster, spell.el);
+  d = Math.round(d * (caster.dmgBonus || 1));
+  return { d: d, crit: crit };
+}
+function applyDamage(target, d, el) {
+  var resisted = false;
+  if (target.vulnTurns > 0) d = Math.round(d * (1 + (target.vulnPct || 0) / 100));
+  var res = (target.res[el] || 0) + Math.floor((target.stats.sag || 0) / 2);
+  if (res !== 0) { d = Math.round(d * (1 - res / 100)); if (res > 0) resisted = true; }
+  d = Math.max(1, d);
+  var shielded = 0;
+  if (target.shield > 0) {
+    shielded = Math.min(target.shield, d);
+    target.shield -= shielded;
+    d -= shielded;
+  }
+  target.hp -= d;
+  return { d: d, resisted: resisted, shielded: shielded };
+}
+function healUnit(unit, amount) {
+  amount = Math.min(amount, unit.maxHp - unit.hp);
+  if (amount <= 0) { showMsg(unit.x, unit.y, 'PV max'); return 0; }
+  unit.hp += amount;
+  sfx('heal');
+  showDmg(unit, unit.x, unit.y, '+' + amount, 'heal');
+  return amount;
+}
+function tickPoison(u, who) {
+  if (!u.poisonTurns) return true;
+  var d = Math.max(1, u.poisonDmg);
+  u.hp -= d;
+  sfx('poison');
+  showDmg(u, u.x, u.y, '-' + d, 'poison');
+  log('<span class="' + who + '">☠️ ' + u.n + '</span> subit <b>' + d + '</b> dégâts de poison.', who);
+  u.poisonTurns--;
+  if (u.hp <= 0) { u.hp = 0; endGame(u === S.player ? S.bot : S.player); return false; }
+  return true;
+}
+
+/* ---------------- Combat ---------------- */
+function makeUnit(def, isPlayer) {
+  var n = Math.max(0, PROG.lvl - 1);
+  var bonus = statBonus(def.mainStat, n);
+  var stats = {};
+  for (var k in def.stats) stats[k] = def.stats[k] + (bonus[k] || 0);
+  var spells = [];
+  for (var i = 0; i < def.spells.length; i++) if (def.spells[i].lvl <= PROG.lvl) spells.push(def.spells[i]);
+  return {
+    n: def.n, icon: def.icon, x: isPlayer ? 1 : 11, y: 4,
+    hp: def.hp + n * 5, maxHp: def.hp + n * 5,
+    pa: 6, paMax: 6, pm: 3, pmMax: 3,
+    res: def.res, el: def.el, style: def.style, stats: stats,
+    spells: spells, dmgBonus: 1, ia: def.ia || 'attack',
+    wrathTurns: 0, wrathBonus: 1.25,
+    powerPctTurns: 0, powerPctBonus: 0,
+    flatTurns: 0, flatBonus: 0,
+    critUpTurns: 0, critUpBonus: 0,
+    vitaTurns: 0, vitaBonus: 0,
+    rangeUpTurns: 0, rangeUpBonus: 2,
+    slowTurns: 0, paDodgeDownTurns: 0, subRangeTurns: 0, subRangeBonus: 2,
+    vulnTurns: 0, vulnPct: 0,
+    poisonTurns: 0, poisonDmg: 0,
+    shield: 0, immobilized: false
+  };
+}
+function newGame() {
+  clearTurnTimers();
+  playMusic('musFight');
+  S = {
+    player: makeUnit(CLASSES[SEL.cls], true),
+    bot: makeUnit(ADVERSARIES[SEL.adv], false),
+    turn: 'p', round: 1, phase: 'move', spell: null, over: false
+  };
+  busy = false;
+  document.getElementById('overlay').classList.add('hidden');
+  document.getElementById('log').innerHTML = '';
+  buildSpellButtons();
+  buildBotSpells();
+  var initP = Math.floor((S.player.stats.force + S.player.stats.intel + S.player.stats.chance + S.player.stats.agi) / 2 + S.player.stats.sag) + rand(-20, 20);
+  var initB = Math.floor((S.bot.stats.force + S.bot.stats.intel + S.bot.stats.chance + S.bot.stats.agi) / 2 + S.bot.stats.sag) + rand(-20, 20);
+  var first = initB > initP ? 'b' : (initP > initB ? 'p' : (Math.random() < 0.5 ? 'p' : 'b'));
+  log('<span class="t">⚔️ Combat !</span> ' + S.player.n + ' <b>vs</b> ' + S.bot.n);
+  if (first === 'b') {
+    log(S.bot.n + ' remporte l\'initiative (' + initB + ') et commence !', 'c');
+    S.turn = 'b';
+  } else {
+    log(S.player.n + ' remporte l\'initiative (' + initP + '). À toi de jouer !', 'p');
+  }
+  render();
+  if (S.turn === 'b') {
+    busy = true;
+    later(botTurn, 900);
+  }
+}
+function playerTurn() {
+  S.turn = 'p'; S.phase = 'move'; S.spell = null;
+  S.player.paMax = 6;
+  S.player.pmMax = S.player.immobilized ? 0 : (S.player.slowTurns > 0 ? 2 : 3);
+  S.player.pa = S.player.paMax;
+  S.player.pm = S.player.pmMax;
+  if (S.player.slowTurns > 0) { log('❄️ Ralenti — 2 PM ce tour !', 'c'); S.player.slowTurns = 0; }
+  if (S.player.immobilized) log('🪤 Immobilisé — tu ne peux pas bouger ce tour !', 'c');
+  S.player.immobilized = false;
+  if (!tickPoison(S.player, 'p')) return;
+  log('<span class="t">— Tour ' + S.round + ' —</span> À toi de jouer.', 'p');
+  render();
+}
+function endPlayerTurn() {
+  if (busy || S.turn !== 'p' || S.over) return;
+  if (S.player.wrathTurns > 0) S.player.wrathTurns--;
+  if (S.player.powerPctTurns > 0) S.player.powerPctTurns--;
+  if (S.player.flatTurns > 0) S.player.flatTurns--;
+  if (S.player.critUpTurns > 0) S.player.critUpTurns--;
+  if (S.player.rangeUpTurns > 0) S.player.rangeUpTurns--;
+  if (S.player.vitaTurns > 0) {
+    S.player.vitaTurns--;
+    if (!S.player.vitaTurns) { S.player.maxHp -= S.player.vitaBonus; S.player.hp = Math.min(S.player.hp, S.player.maxHp); }
+  }
+  if (S.bot.vulnTurns > 0) S.bot.vulnTurns--;
+  if (S.bot.paDodgeDownTurns > 0) S.bot.paDodgeDownTurns--;
+  if (S.bot.subRangeTurns > 0) S.bot.subRangeTurns--;
+  busy = true;
+  S.phase = 'move'; S.spell = null;
+  log('<span class="t">— Fin de ton tour —</span> ' + S.bot.n + ' réfléchit…', 'c');
+  render();
+  later(botTurn, 800);
+}
+function paDodge(caster, spell, enemy) {
+  if (Math.abs(caster.x - enemy.x) + Math.abs(caster.y - enemy.y) !== 1) return false;
+  var base = spell.min === 1 ? 0.05 : 0.25;
+  var p = base + (enemy.stats.agi || 0) * 0.002;
+  if (enemy.paDodgeDownTurns > 0) p *= 0.5;
+  return Math.random() < p;
+}
+function bondTp(caster, target) {
+  var dirs = [[1,0],[-1,0],[0,1],[0,-1]];
+  var best = null, bestD = 1e9;
+  for (var i = 0; i < 4; i++) {
+    var nx = target.x + dirs[i][0], ny = target.y + dirs[i][1];
+    if (cellBlocked(nx, ny) || occupiedBy(nx, ny)) continue;
+    var dd = Math.abs(caster.x - nx) + Math.abs(caster.y - ny);
+    if (dd < bestD) { bestD = dd; best = [nx, ny]; }
+  }
+  if (best) { caster.x = best[0]; caster.y = best[1]; flashCell(best[0], best[1]); return true; }
+  return false;
+}
+function resolveSpell(caster, spell, tx, ty) {
+  var target = (caster === S.player) ? S.bot : S.player;
+  var whoCls = (caster === S.player) ? 'p' : 'c';
+
+  // esquive de PA en mêlée
+  if (paDodge(caster, spell, target)) {
+    caster.pa -= 1;
+    log('<span class="' + whoCls + '">⚡ ' + caster.n + '</span> perd un PA (mêlée !)', whoCls);
+    sfx('error');
+    if (caster.pa < spell.cost) {
+      log('Pas assez de PA après l\'esquive — <b>' + spell.n + '</b> ne part pas.', whoCls);
+      render();
+      return false;
+    }
+  }
+  caster.pa -= spell.cost;
+
+  if (spell.type === 'self') {
+    if (spell.self === 'heal') {
+      var h1 = rand(spell.d[0], spell.d[1]);
+      var healed = healUnit(caster, h1);
+      sfx('heal');
+      log('<span class="' + whoCls + '">' + caster.n + '</span> lance <b>' + spell.i + ' ' + spell.n + '</b> (' + spell.cost + ' PA) : +' + healed + ' PV.');
+      render();
+    } else if (spell.self === 'flat') {
+      if (spell.flat) { caster.flatTurns = spell.flat.turns; caster.flatBonus = spell.flat.v; }
+      if (spell.pct) { caster.powerPctTurns = spell.pct.turns; caster.powerPctBonus = spell.pct.v; }
+      sfx('buff');
+      showMsg(caster.x, caster.y, '💪 +' + spell.flat.v);
+      log('<span class="' + whoCls + '">' + caster.n + '</span> lance <b>' + spell.i + ' ' + spell.n + '</b> (' + spell.cost + ' PA) : +' + spell.flat.v + ' dégâts' + (spell.pct ? ' et +' + Math.round(spell.pct.v * 100) + '%' : '') + ' pendant ' + spell.flat.turns + ' tour' + (spell.flat.turns > 1 ? 's' : '') + ' !');
+      render();
+    } else if (spell.self === 'powerPct') {
+      if (caster.powerPctTurns > 0) { log('Déjà sous l\'effet d\'un bonus de dégâts !', whoCls); sfx('error'); caster.pa += spell.cost; return false; }
+      caster.powerPctTurns = spell.pct.turns;
+      caster.powerPctBonus = spell.pct.v;
+      sfx('buff');
+      showMsg(caster.x, caster.y, '🔱 +' + Math.round(spell.pct.v * 100) + '%');
+      log('<span class="' + whoCls + '">' + caster.n + '</span> lance <b>' + spell.i + ' ' + spell.n + '</b> (' + spell.cost + ' PA) : +' + Math.round(spell.pct.v * 100) + '% de dégâts pendant ' + spell.pct.turns + ' tours !');
+      render();
+    } else if (spell.self === 'critUp') {
+      if (caster.critUpTurns > 0) { log('Tir Critique déjà actif !', whoCls); sfx('error'); caster.pa += spell.cost; return false; }
+      caster.critUpTurns = 3;
+      caster.critUpBonus = 0.15;
+      sfx('buff');
+      showMsg(caster.x, caster.y, '🎯 +15% critique');
+      log('<span class="' + whoCls + '">' + caster.n + '</span> lance <b>' + spell.i + ' ' + spell.n + '</b> (' + spell.cost + ' PA) : +15% coups critiques et +20% dégâts pendant 3 tours !');
+      render();
+    } else if (spell.self === 'vita') {
+      if (caster.vitaTurns > 0) { log('Vitalité déjà active !', whoCls); sfx('error'); caster.pa += spell.cost; return false; }
+      caster.vitaTurns = spell.vita.turns;
+      caster.vitaBonus = spell.vita.v;
+      caster.maxHp += spell.vita.v;
+      caster.hp = Math.min(caster.maxHp, caster.hp + spell.vita.v);
+      sfx('buff');
+      showMsg(caster.x, caster.y, '💚 +' + spell.vita.v);
+      log('<span class="' + whoCls + '">' + caster.n + '</span> lance <b>' + spell.i + ' ' + spell.n + '</b> (' + spell.cost + ' PA) : +' + spell.vita.v + ' PV max pendant ' + spell.vita.turns + ' tours !');
+      render();
+    } else if (spell.self === 'rangeUp') {
+      if (caster.rangeUpTurns > 0) { log('Tir Éloigné déjà actif !', whoCls); sfx('error'); caster.pa += spell.cost; return false; }
+      caster.rangeUpTurns = 3;
+      caster.rangeUpBonus = 2;
+      sfx('buff');
+      showMsg(caster.x, caster.y, '👁️ +2');
+      log('<span class="' + whoCls + '">' + caster.n + '</span> lance <b>' + spell.i + ' ' + spell.n + '</b> (' + spell.cost + ' PA) : +2 de portée pendant 3 tours !');
+      render();
+    }
+    return true;
+  }
+  if (spell.type === 'tp') {
+    caster.x = tx; caster.y = ty;
+    sfx('move');
+    flashCell(tx, ty);
+    log('<span class="' + whoCls + '">' + caster.n + '</span> lance <b>' + spell.i + ' ' + spell.n + '</b> (' + spell.cost + ' PA) et se téléporte !');
+    render();
+    return true;
+  }
+  if (spell.type === 'push') {
+    var pushed = pushUnit(caster, target, spell.push);
+    sfx('push');
+    log('<span class="' + whoCls + '">' + caster.n + '</span> lance <b>' + spell.i + ' ' + spell.n + '</b> (' + spell.cost + ' PA) : 💨 repoussé' + (pushed > 1 ? ' x' + pushed : '') + (pushed === 0 ? ' (bloqué)' : '') + '.');
+    render();
+    return true;
+  }
+  if (spell.type === 'debuff' && spell.vuln) {
+    target.vulnTurns = spell.vuln.turns;
+    target.vulnPct = spell.vuln.pct;
+    sfx('cast');
+    showMsg(target.x, target.y, '💔 -' + spell.vuln.pct + '%');
+    log('<span class="' + whoCls + '">' + caster.n + '</span> lance <b>' + spell.i + ' ' + spell.n + '</b> (' + spell.cost + ' PA) : ' + target.n + ' est vulnérable (-' + spell.vuln.pct + '% résistances, ' + spell.vuln.turns + ' tours) !');
+    render();
+    return true;
+  }
+
+  // dégâts — simple ou zone (rayon)
+  var hits = [];
+  if (spell.aoe) {
+    if (Math.abs(target.x - tx) + Math.abs(target.y - ty) <= spell.aoe) hits.push(target);
+    if (caster !== target && Math.abs(caster.x - tx) + Math.abs(caster.y - ty) <= spell.aoe) hits.push(caster);
+  } else {
+    hits.push(target);
+  }
+  if (!hits.length) {
+    log('<span class="' + whoCls + '">' + caster.n + '</span> lance <b>' + spell.i + ' ' + spell.n + '</b> (' + spell.cost + ' PA)… dans le vide !', whoCls);
+    sfx('cast');
+    render();
+    return true;
+  }
+  for (var h = 0; h < hits.length; h++) {
+    var vict = hits[h];
+    var calc = computeDmg(caster, spell);
+    var dmgRes = applyDamage(vict, calc.d, spell.el);
+    var extra = '';
+    if (spell.d2) {
+      var calc2 = computeDmg(caster, { d: spell.d2, el: spell.el2 });
+      var dmgRes2 = applyDamage(vict, calc2.d, spell.el2);
+      extra += ' + <b>' + dmgRes2.d + '</b> ' + spell.el2;
+      if (dmgRes2.resisted) extra += ' (résiste)';
+    }
+    sfx(calc.crit ? 'crit' : 'hit');
+    bounceUnit(vict === S.player ? unitP : unitB);
+    showDmg(vict, vict.x, vict.y, '-' + dmgRes.d, calc.crit ? 'crit' : null);
+    if (spell.push && vict === target) {
+      var pushed = pushUnit(caster, target, spell.push);
+      if (pushed > 0) { extra += ' 💨 Repoussé' + (pushed > 1 ? ' x' + pushed : ''); sfx('push'); }
+    }
+    if (spell.steal && vict === target && dmgRes.d > 0) {
+      var steal = Math.max(1, Math.round(dmgRes.d * spell.steal));
+      if (steal > 25) steal = 25; // limite de vol de vie (anti-stalemate, esprit 1.29)
+      var st = healUnit(caster, steal);
+      extra += ' 🩸 +' + st + ' PV volés';
+    }
+    if (spell.slow && vict === target) {
+      target.slowTurns = 1;
+      extra += ' ❄️ Ralenti';
+      sfx('freeze');
+    }
+    if (spell.paDodgeDown && vict === target) {
+      target.paDodgeDownTurns = 2;
+      extra += ' 🎯 -esquive PA';
+    }
+    if (spell.subRange && vict === target) {
+      target.subRangeTurns = 2;
+      target.subRangeBonus = spell.subRange;
+      extra += ' 👁️ -' + spell.subRange + ' portée';
+    }
+    if (spell.flat && vict === target) {
+      caster.flatTurns = spell.flat.turns;
+      caster.flatBonus = spell.flat.v;
+      extra += ' 💪 +' + spell.flat.v + ' dégâts';
+      sfx('buff');
+    }
+    if (spell.poison && vict === target && !target.poisonTurns) {
+      target.poisonTurns = spell.poison.turns;
+      target.poisonDmg = spell.poison.d;
+      extra += ' ☠️ Empoisonné';
+      sfx('cast');
+    }
+    if (dmgRes.resisted) extra += ' (résiste)';
+    if (dmgRes.shielded > 0) extra += ' (🛡️' + dmgRes.shielded + ')';
+    log('<span class="' + whoCls + '">' + caster.n + '</span> lance <b>' + spell.i + ' ' + spell.n + '</b> (' + spell.cost + ' PA · ' + spell.el + ') : <b>' + dmgRes.d + ' dégâts</b>' +
+        (calc.crit ? ' <span style="color:#ff6b6b">CRITIQUE !</span>' : '') + extra + '.');
+    if (vict.hp <= 0) {
+      vict.hp = 0;
+      endGame(vict === S.player ? S.bot : S.player);
+      return true;
+    }
+  }
+  render();
+  return true;
+}
+function pushUnit(caster, target, maxCells) {
+  var dx = target.x - caster.x, dy = target.y - caster.y;
+  var sx = dx !== 0 ? (dx > 0 ? 1 : -1) : 0;
+  var sy = dy !== 0 ? (dy > 0 ? 1 : -1) : 0;
+  var pushed = 0;
+  for (var i = 0; i < maxCells; i++) {
+    var nx = target.x + sx, ny = target.y + sy;
+    if (cellBlocked(nx, ny) || occupiedBy(nx, ny)) break;
+    target.x = nx; target.y = ny;
+    pushed++;
+  }
+  if (pushed > 0) flashCell(target.x, target.y);
+  else showMsg(target.x, target.y, '🛡️ Bloqué');
+  return pushed;
+}
+function endGame(winner) {
+  S.over = true; busy = true;
+  render();
+  var ov = document.getElementById('overlay');
+  var box = document.getElementById('ovBox');
+  var xpGain, kamasGain, title, color, sub;
+  if (winner === S.player) {
+    xpGain = 40 + S.round * 5;
+    kamasGain = 25 + S.round * 3;
+    title = '🏆 VICTOIRE !';
+    color = '#ffd75e';
+    sub = S.bot.n + ' est tombé en ' + S.round + ' tour' + (S.round > 1 ? 's' : '') + '.';
+    sfx('win');
+  } else {
+    xpGain = 12;
+    kamasGain = 5;
+    title = '💀 DÉFAITE…';
+    color = '#ff6b6b';
+    sub = S.bot.n + ' t\'a eu en ' + S.round + ' tour' + (S.round > 1 ? 's' : '') + '.';
+    sfx('lose');
+  }
+  var prevLvl = PROG.lvl;
+  addRewards(xpGain, kamasGain);
+  var lvlUp = PROG.lvl > prevLvl ? ' ⬆️' : '';
+  var html = '<div id="ovTitle" style="color:' + color + '">' + title + '</div>';
+  html += '<div id="ovMsg">' + sub + '<br>+<b>' + xpGain + '</b> XP · +<b>' + kamasGain + '</b> kamas' + lvlUp + '</div>';
+  html += '<div id="progRow">Niveau <b>' + PROG.lvl + '</b> · ' + PROG.xp + '/' + xpNeed() + ' XP · <b>' + PROG.kamas + '</b> kamas</div>';
+  html += '<button id="btnAgain">🔁 Rejouer</button> <button id="btnMenu">🏠 Changer</button>';
+  box.innerHTML = html;
+  document.getElementById('btnAgain').onclick = function () { newGame(); };
+  document.getElementById('btnMenu').onclick = function () { renderMenu(); };
+  ov.classList.remove('hidden');
+  renderProg();
+}
+
+/* ---------------- Menu ---------------- */
+function classSub(c) {
+  var s = c.stats;
+  return c.hp + ' PV · ' + c.el + ' · Force ' + s.force + ' / Intel ' + s.intel + ' / Chance ' + s.chance + ' / Agi ' + s.agi + ' / Vita ' + s.vita + ' / Sag ' + s.sag +
+    '<br>' + c.desc +
+    '<br>Sorts (niv requis) : ' + c.spells.map(function (sp) { return sp.i + sp.lvl; }).join(' ');
+}
+function renderMenu() {
+  clearTurnTimers();
+  playMusic('musMenu');
+  busy = false;
+  document.getElementById('overlay').classList.remove('hidden');
+  var box = document.getElementById('ovBox');
+  var html = '<div id="ovTitle" style="color:#ffd75e">⚔️ DOFUS DUEL — 1.29</div>';
+  html += '<div id="ovMsg">Choisis ta classe et ton adversaire. Les sorts s\'apprennent avec ton niveau (comme en 1.29).</div>';
+  html += '<div class="menuRow">';
+  html += '<div class="menuCol"><h3>Ta classe</h3>';
+  for (var k in CLASSES) {
+    var c = CLASSES[k];
+    html += '<button class="opt' + (SEL.cls === k ? ' sel' : '') + '" data-cls="' + k + '">';
+    html += '<span class="oIco">' + c.icon + '</span>' + c.n;
+    html += '<span class="oSub">' + classSub(c) + '</span>';
+    html += '</button>';
+  }
+  html += '</div><div class="menuCol"><h3>Adversaire</h3>';
+  for (var a in ADVERSARIES) {
+    var ad = ADVERSARIES[a];
+    html += '<button class="opt' + (SEL.adv === a ? ' sel' : '') + '" data-adv="' + a + '">';
+    html += '<span class="oIco">' + ad.icon + '</span>' + ad.n;
+    html += '<span class="oSub">' + classSub(ad) + '</span>';
+    html += '</button>';
+  }
+  html += '</div></div>';
+  html += '<button id="btnFight">⚔️ COMBATTRE</button> <button id="btnHelpMenu">❓ Guide</button>';
+  box.innerHTML = html;
+  document.getElementById('btnFight').onclick = function () { newGame(); };
+  document.getElementById('btnHelpMenu').onclick = function () { renderHelp(); };
+
+  var clsBtns = box.querySelectorAll('.opt[data-cls]');
+  for (var i = 0; i < clsBtns.length; i++) {
+    (function (b) {
+      b.onclick = function () {
+        SEL.cls = b.getAttribute('data-cls');
+        for (var j = 0; j < clsBtns.length; j++) clsBtns[j].classList.remove('sel');
+        b.classList.add('sel');
+      };
+    })(clsBtns[i]);
+  }
+  var advBtns = box.querySelectorAll('.opt[data-adv]');
+  for (var k2 = 0; k2 < advBtns.length; k2++) {
+    (function (b) {
+      b.onclick = function () {
+        SEL.adv = b.getAttribute('data-adv');
+        for (var j2 = 0; j2 < advBtns.length; j2++) advBtns[j2].classList.remove('sel');
+        b.classList.add('sel');
+      };
+    })(advBtns[k2]);
+  }
+  renderProg();
+}
+
+/* ---------------- Guide ---------------- */
+function renderHelp() {
+  clearTurnTimers();
+  playMusic('musMenu');
+  busy = false;
+  document.getElementById('overlay').classList.remove('hidden');
+  var box = document.getElementById('ovBox');
+  var html = '<div id="ovTitle" style="color:#ffd75e">📖 GUIDE DU DUEL</div>';
+  html += '<div id="ovMsg">Tout ce qu\'il faut savoir avant de combattre.</div>';
+  html += '<div class="helpBlock"><h4>🎯 Objectif</h4><p>Réduis les PV de l\'adversaire à 0. Chaque tour : <b>6 PA</b> (lancer des sorts) et <b>3 PM</b> (se déplacer).</p></div>';
+  html += '<div class="helpBlock"><h4>📜 Sorts & niveau</h4><p>Comme en Dofus 1.29, les 20 sorts de ta classe s\'apprennent avec le niveau (1, 3, 6, 9, 13, 17, 21, 26, 31, 36, 42, 48, 54, 60, 70, 80, 90, 100) — les plus puissants (Épée de Iop, Colère de Iop, Maîtrise de l\'Arc) arrivent au niv 90-100. Le niveau max est 200 : après 100, tu gagnes encore PV et dégâts. Ton adversaire a le même niveau que toi.</p></div>';
+  html += '<div class="helpBlock"><h4>💪 Caractéristiques 1.29</h4><p>Force / Intelligence / Chance / Agilité / Vitalité / Sagesse. Tous les 5 points dans une carac = +1 dégât de son élément (Force→Terre/Neutre, Intel→Feu, Chance→Eau, Agi→Air). L\'Agilité booste esquive et coups critiques, la Sagesse donne de la résistance. Chaque niveau : +5 PV et +1 dans ta carac principale (Force pour l\'Iop, Agilité pour le Cra).</p></div>';
+  html += '<div class="helpBlock"><h4>🟢 Se déplacer</h4><p>Clique une case <b>verte</b>. Le chiffre affiché = PM nécessaires. Entrer <b>à côté d\'un ennemi</b> coûte 2 PM (liseré rouge = zone de danger).</p></div>';
+  html += '<div class="helpBlock"><h4>🟠 Lancer un sort</h4><p>Clique un sort dans la barre : sa <b>portée</b> s\'affiche en clair sur la grille. Clique la cible <b>orange</b>. Certains sorts exigent une <b>ligne de vue</b> : si un arbre te bloque, la cible devient <b>rouge</b>. Les sorts <b>Zone</b> (Épée Céleste, Flèche Explosive) touchent la cible et les cases voisines. Le <b>Bond</b> téléporte vers une case en portée.</p></div>';
+  html += '<div class="helpBlock"><h4>⚡ Mêlée</h4><p>Lancer un sort à côté d\'un ennemi risque de te faire perdre des PA (esquive). Les sorts de mêlée (portée 1) sont moins risqués.</p></div>';
+  html += '<div class="helpBlock"><h4>🧱 Résistances</h4><p>L\'Iop résiste à la Terre mais craint l\'Air. Le Cra résiste à l\'Air mais craint la Terre. La Sagesse ajoute de la résistance générale.</p></div>';
+  html += '<div class="helpBlock"><h4>✨ Effets</h4><p>Les icônes au-dessus des personnages montrent leurs états : 🔱 bonus % dégâts, 💪 bonus dégâts, 🎯 critique, 💚 PV max, 👁️ portée, ❄️ ralenti, 🎯-esq (esquive PA réduite), 👁️-port (portée réduite), ☠️ empoisonné.</p></div>';
+  html += '<div class="helpBlock"><h4>⚔️ L\'Iop</h4><p>Mêlée, gros PV, Force. Compulsion/Puissance/Mutilation avant de frapper, Bond pour sauter au contact, Souffle pour repousser, Épée du Jugement vole de la vie, Épée de Iop et Colère de Iop pour finir.</p></div>';
+  html += '<div class="helpBlock"><h4>🏹 Le Cra</h4><p>Distance, Agilité. Reste à 4-8 cases : Flèche Magique en cadence, Tir Puissant et Tir Critique pour buff, Empoisonnée pour saigner, Immobilisation/Cinglante pour ralentir, Absorbante vole la vie, Explosive frappe en zone.</p></div>';
+  html += '<div class="helpBlock"><h4>📈 Progression</h4><p>Victoire ou défaite rapportent XP et kamas. Chaque niveau : +5 PV, +1 carac principale et de nouveaux sorts.</p></div>';
+  html += '<button id="btnHelpGo">✅ C\'est parti !</button>';
+  box.innerHTML = html;
+  document.getElementById('btnHelpGo').onclick = function () {
+    try { localStorage.setItem('dofus_help', '1'); } catch (e) {}
+    renderMenu();
+  };
+  renderProg();
+}
+
+/* ---------------- Actions joueur ---------------- */
+function buildSpellButtons() {
+  var wrap = document.getElementById('spells');
+  wrap.innerHTML = '';
+  for (var i = 0; i < S.player.spells.length; i++) {
+    var sp = S.player.spells[i];
+    var b = document.createElement('button');
+    b.className = 'spellBtn';
+    b.innerHTML = '<span class="ico">' + sp.i + '</span>' + sp.n + '<span class="cost">' + sp.cost + ' PA</span>';
+    (function (s) {
+      b.onclick = function () { selectSpell(s); };
+      b.onmouseenter = function () { showSpellInfo(s); };
+      b.onmouseleave = function () { showSpellInfo(S.spell || null); };
+    })(sp);
+    wrap.appendChild(b);
+  }
+}
+function buildBotSpells() {
+  var wrap = document.getElementById('bSpells');
+  wrap.innerHTML = '';
+  if (!S) return;
+  for (var i = 0; i < S.bot.spells.length; i++) {
+    var sp = S.bot.spells[i];
+    var b = document.createElement('div');
+    b.className = 'bSpell';
+    b.innerHTML = sp.i + '<small>' + sp.cost + ' PA</small>';
+    b.title = sp.n;
+    (function (s) {
+      b.onmouseenter = function () { showSpellInfo(s, S.bot.n); };
+      b.onclick = function () { showSpellInfo(s, S.bot.n); };
+    })(sp);
+    wrap.appendChild(b);
+  }
+}
+function selectSpell(sp) {
+  if (busy || S.turn !== 'p' || S.over) return;
+  if (S.player.pa < sp.cost) { log('Pas assez de PA pour <b>' + sp.n + '</b> !', 'c'); sfx('error'); return; }
+  if (sp.type === 'self') {
+    resolveSpell(S.player, sp, 0, 0);
+    afterPlayerAction();
+    return;
+  }
+  if (S.phase === 'spell' && S.spell === sp) {
+    S.phase = 'move'; S.spell = null;
+  } else {
+    S.phase = 'spell'; S.spell = sp;
+  }
+  render();
+}
+function clickCell(x, y) {
+  if (busy || S.turn !== 'p' || S.over) return;
+  if (S.phase === 'spell' && S.spell) {
+    var sp = S.spell;
+    var pmax = pMax(sp, S.player);
+    var d = dist(S.player, S.bot);
+    if (sp.type === 'dmg' || sp.type === 'debuff' || sp.type === 'push') {
+      var ok = false;
+      if (sp.aoe) {
+        var da = Math.abs(S.player.x - x) + Math.abs(S.player.y - y);
+        ok = da >= sp.min && da <= pmax;
+      } else if (sp.type === 'push') {
+        ok = (x === S.bot.x && y === S.bot.y) && d >= sp.min && d <= pmax;
+      } else {
+        ok = (x === S.bot.x && y === S.bot.y) && d >= sp.min && d <= pmax &&
+             (!sp.los || los(S.player.x, S.player.y, S.bot.x, S.bot.y));
+      }
+      if (ok) {
+        resolveSpell(S.player, sp, x, y);
+        S.phase = 'move'; S.spell = null;
+        afterPlayerAction();
+      } else {
+        log('Hors de portée ou pas de ligne de vue pour <b>' + sp.n + '</b>.', 'c');
+        sfx('error');
+        S.phase = 'move'; S.spell = null;
+        render();
+      }
+    } else if (sp.type === 'tp') {
+      var d2 = Math.abs(S.player.x - x) + Math.abs(S.player.y - y);
+      if (d2 >= sp.min && d2 <= sp.max && !cellBlocked(x, y) && !occupiedBy(x, y)) {
+        resolveSpell(S.player, sp, x, y);
+        S.phase = 'move'; S.spell = null;
+        afterPlayerAction();
+      } else {
+        log('Destination invalide pour <b>' + sp.n + '</b>.', 'c');
+        sfx('error');
+        S.phase = 'move'; S.spell = null;
+        render();
+      }
+    }
+  } else {
+    var pc = pathToCosts(S.player.x, S.player.y, x, y, S.player.pm, S.bot);
+    if (pc) {
+      S.player.x = x; S.player.y = y;
+      S.player.pm -= pc.cost;
+      sfx('move');
+      flashCell(x, y);
+      render();
+    }
+  }
+}
+function afterPlayerAction() {
+  render();
+  if (S.over) return;
+  if (S.player.pa <= 0 && S.player.pm <= 0) later(endPlayerTurn, 500);
+}
+
+/* ---------------- IA du bot ---------------- */
+function botTurn() {
+  S.turn = 'b';
+  S.bot.paMax = 6;
+  S.bot.pmMax = S.bot.immobilized ? 0 : (S.bot.slowTurns > 0 ? 2 : 3);
+  S.bot.pa = S.bot.paMax;
+  S.bot.pm = S.bot.pmMax;
+  if (S.bot.slowTurns > 0) { log('❄️ ' + S.bot.n + ' est ralenti — 2 PM ce tour !', 'c'); S.bot.slowTurns = 0; }
+  if (S.bot.immobilized) log('🪤 ' + S.bot.n + ' est immobilisé et ne peut pas bouger !', 'c');
+  S.bot.immobilized = false;
+  if (!tickPoison(S.bot, 'c')) return;
+  render();
+
+  var reach = reachCosts(S.bot.x, S.bot.y, S.bot.pm, S.player);
+  var best = null, bestScore = -1e9;
+  var k, c, cx, cy, sc, d, canFire;
+  // Portée de tir du bot : portée max de ses sorts de dégâts (le Tofu vise 1-3, le Cra 6-9)
+  var botBest = 3;
+  for (var bi = 0; bi < S.bot.spells.length; bi++) {
+    var bs = S.bot.spells[bi];
+    if (bs.type === 'dmg' && bs.max > botBest) botBest = bs.max;
+  }
+  var fireLo = Math.max(2, botBest - 3), fireHi = botBest;
+  for (k in reach) {
+    c = k.split(',');
+    cx = parseInt(c[0], 10); cy = parseInt(c[1], 10);
+    d = Math.abs(cx - S.player.x) + Math.abs(cy - S.player.y);
+    canFire = los(cx, cy, S.player.x, S.player.y);
+    sc = 0;
+    if (S.bot.style === 'ranged') {
+      var fleeing = S.bot.ia === 'flee';
+      if (d < fireLo) sc -= fleeing ? 120 : 60;
+      else if (d <= fireHi && canFire) sc += 100;
+      else sc -= 40; // trop loin : avancer vers le joueur
+      if (d === 2 && fleeing) sc -= 60;
+      if (d >= 2 && d <= fireHi && canFire && S.bot.pa >= 4) sc += 15;
+    } else { // melee
+      if (d <= 1) sc += 80;
+      if (d === 2) sc += 40;
+      if (d === 3) sc += 10;
+      if (d >= 5) sc -= 40;
+      if (d >= 2 && d <= 3 && canFire) sc += 20;
+    }
+    sc += Math.random() * 4;
+    if (sc > bestScore) { bestScore = sc; best = [cx, cy]; }
+  }
+  if (best) {
+    var pc = pathToCosts(S.bot.x, S.bot.y, best[0], best[1], S.bot.pm, S.player);
+    if (pc && pc.path.length) {
+      var last = pc.path[Math.min(S.bot.pm, pc.path.length) - 1];
+      S.bot.x = last[0]; S.bot.y = last[1];
+      S.bot.pm -= pc.cost;
+      sfx('move');
+      flashCell(S.bot.x, S.bot.y);
+      render();
+    }
+  }
+  later(botAttack, 400);
+}
+function botAttack() {
+  if (S.over) return;
+  var d = dist(S.bot, S.player);
+  var i, sp, best = null, bestScore = -1e9, avg, sc, tx = S.player.x, ty = S.player.y;
+
+  for (i = 0; i < S.bot.spells.length; i++) {
+    sp = S.bot.spells[i];
+    if (S.bot.pa < sp.cost) continue;
+    if (sp.type === 'self') {
+      if (sp.self === 'powerPct' && !S.bot.powerPctTurns) {
+        var okDist = S.bot.style === 'ranged' ? (d >= 2 && d <= 7) : (d <= 3);
+        if (okDist && 68 > bestScore) { bestScore = 68; best = sp; }
+      }
+      if (sp.self === 'flat' && !S.bot.flatTurns) {
+        var okDist2 = S.bot.style === 'ranged' ? d >= 2 : d <= 3;
+        if (okDist2 && 55 > bestScore) { bestScore = 55; best = sp; }
+      }
+      if (sp.self === 'vita' && !S.bot.vitaTurns && S.bot.hp < S.bot.maxHp * 0.65) {
+        if (58 > bestScore) { bestScore = 58; best = sp; }
+      }
+      if (sp.self === 'heal' && S.bot.hp < S.bot.maxHp * 0.6) {
+        if (72 > bestScore) { bestScore = 72; best = sp; }
+      }
+      if (sp.self === 'critUp' && !S.bot.critUpTurns && S.bot.style === 'ranged' && d >= 2) {
+        if (45 > bestScore) { bestScore = 45; best = sp; }
+      }
+      if (sp.self === 'rangeUp' && !S.bot.rangeUpTurns && S.bot.style === 'ranged') {
+        if (40 > bestScore) { bestScore = 40; best = sp; }
+      }
+      continue;
+    }
+    if (sp.type === 'tp') {
+      if (S.bot.style === 'melee' && d > 2) {
+        var bestTp = null, bestTpD = 1e9;
+        for (var y = 0; y < ROWS; y++) for (var x = 0; x < COLS; x++) {
+          var dd = Math.abs(S.bot.x - x) + Math.abs(S.bot.y - y);
+          var dj = Math.abs(S.player.x - x) + Math.abs(S.player.y - y);
+          if (dd >= sp.min && dd <= sp.max && !cellBlocked(x, y) && !occupiedBy(x, y) && dj < bestTpD) {
+            bestTpD = dj; bestTp = [x, y];
+          }
+        }
+        if (bestTp) {
+          var tpSc = 75 - d * 3;
+          if (tpSc > bestScore) { bestScore = tpSc; best = sp; tx = bestTp[0]; ty = bestTp[1]; }
+        }
+      }
+      continue;
+    }
+    if (sp.type === 'push') {
+      if (S.bot.style === 'ranged' && d <= 2) {
+        if (40 > bestScore) { bestScore = 40; best = sp; }
+      }
+      continue;
+    }
+    if (sp.type !== 'dmg' && sp.type !== 'debuff') continue;
+    if (d < sp.min || d > pMax(sp, S.bot)) continue;
+    if (sp.los && !los(S.bot.x, S.bot.y, S.player.x, S.player.y)) continue;
+    if (sp.type === 'dmg') {
+      avg = (sp.d[0] + sp.d[1]) / 2;
+      if (sp.d2) avg += (sp.d2[0] + sp.d2[1]) / 2;
+      sc = avg / sp.cost;
+      if (sp.aoe && d <= sp.aoe) sc -= 40; // ne pas s'auto-blesser en zone
+      if (sp.push && d === 1 && S.bot.style === 'ranged') sc += 30;
+      if (sp.slow && !S.player.slowTurns) sc += 15;
+      if (sp.poison && !S.player.poisonTurns) sc += 18;
+      if (sp.steal) sc += 4;
+      if (sp.subRange && !S.player.subRangeTurns) sc += 8;
+      if (sp.paDodgeDown) sc += 6;
+      if (!sp.los) sc += 5;
+      var tres = S.player.res[sp.el] || 0;
+      if (tres < 0) sc += 8; // exploite la faiblesse élémentaire
+      if (sc > bestScore) { bestScore = sc; best = sp; }
+    } else if (sp.vuln && !S.player.vulnTurns) {
+      if (22 > bestScore) { bestScore = 22; best = sp; }
+    }
+  }
+
+  if (best) {
+    resolveSpell(S.bot, best, tx, ty);
+    render();
+  } else {
+    log(S.bot.n + ' n\'a rien à faire… il attend.', 'c');
+  }
+  later(endBotTurn, 450);
+}
+function endBotTurn() {
+  if (S.over) return;
+  if (S.bot.wrathTurns > 0) S.bot.wrathTurns--;
+  if (S.bot.powerPctTurns > 0) S.bot.powerPctTurns--;
+  if (S.bot.flatTurns > 0) S.bot.flatTurns--;
+  if (S.bot.critUpTurns > 0) S.bot.critUpTurns--;
+  if (S.bot.rangeUpTurns > 0) S.bot.rangeUpTurns--;
+  if (S.bot.vitaTurns > 0) {
+    S.bot.vitaTurns--;
+    if (!S.bot.vitaTurns) { S.bot.maxHp -= S.bot.vitaBonus; S.bot.hp = Math.min(S.bot.hp, S.bot.maxHp); }
+  }
+  if (S.player.vulnTurns > 0) S.player.vulnTurns--;
+  if (S.player.paDodgeDownTurns > 0) S.player.paDodgeDownTurns--;
+  if (S.player.subRangeTurns > 0) S.player.subRangeTurns--;
+  S.round++;
+  busy = false;
+  playerTurn();
+}
+
+/* ---------------- Init ---------------- */
+document.getElementById('grid').addEventListener('click', function (e) {
+  var c = e.target;
+  while (c && c !== this && !c.classList.contains('cell')) c = c.parentNode;
+  if (c && c.classList.contains('cell')) {
+    clickCell(parseInt(c.getAttribute('data-x'), 10), parseInt(c.getAttribute('data-y'), 10));
+  }
+});
+document.getElementById('grid').addEventListener('mouseover', function (e) {
+  var c = e.target;
+  while (c && c !== this && !c.classList.contains('cell')) c = c.parentNode;
+  if (c && c.classList.contains('cell') && !c.classList.contains('obs')) c.classList.add('hov');
+});
+document.getElementById('grid').addEventListener('mouseout', function (e) {
+  var c = e.target;
+  while (c && c !== this && !c.classList.contains('cell')) c = c.parentNode;
+  if (c && c.classList.contains('cell')) c.classList.remove('hov');
+});
+document.getElementById('btnEnd').onclick = function () { endPlayerTurn(); };
+document.body.addEventListener('click', function () { initAudio(); if (musicOn) playMusic(S && !S.over ? 'musFight' : 'musMenu'); }, { once: true });
+
+buildGrid();
+document.getElementById('btnHelp').onclick = function () { renderHelp(); };
+var helpSeen = false;
+try { helpSeen = !!localStorage.getItem('dofus_help'); } catch (e) {}
+if (helpSeen) renderMenu();
+else renderHelp();

@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Dofus Duel — Combat 1v1 (1.29)</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<audio id="musMenu" src="assets/music/amakna.mp3" loop preload="auto"></audio>
+<audio id="musFight" src="assets/music/combat-amakna.mp3" loop preload="auto"></audio>
+
+<div id="app">
+  <header>
+    <h1>⚔️ Dofus <span class="vs">DUEL</span></h1>
+    <div id="prog"><b id="progLvl">Niv 1</b><div id="xpBar"><div id="xpFill"></div></div><span id="progKamas">0 k</span></div>
+    <button id="btnSound" title="Son">🔊</button>
+    <button id="btnHelp" title="Guide de jeu">❓</button>
+  </header>
+
+  <div id="turnBanner">—</div>
+  <div id="hint"></div>
+
+  <div id="hud">
+    <div id="pPanel" class="panel">
+      <div class="pname" id="pName">🧑 Iop</div>
+      <div class="bar"><div id="pBar"></div><span id="pHp"></span></div>
+      <div class="res"><span>PA</span><div id="pPa" class="dots"></div><span class="resNum" id="pPaNum"></span></div>
+      <div class="res"><span>PM</span><div id="pPm" class="dots"></div><span class="resNum" id="pPmNum"></span></div>
+      <div id="pBuffs" class="buffs"></div>
+    </div>
+
+    <div id="gridWrap"><div id="grid"></div></div>
+
+    <div id="bPanel" class="panel">
+      <div class="pname" id="bName">🏹 Cra</div>
+      <div class="bar"><div id="bBar"></div><span id="bHp"></span></div>
+      <div id="bBuffs" class="buffs"></div>
+      <div id="bSpells"></div>
+    </div>
+  </div>
+
+  <div id="actions">
+    <div id="spells"></div>
+    <button id="btnEnd">⏭ Fin de tour</button>
+  </div>
+  <div id="spellInfo" class="placeholder">Survole ou sélectionne un sort pour voir ses détails (PA, portée, ligne de vue…).</div>
+  <div id="log"></div>
+</div>
+
+<div id="overlay">
+  <div id="ovBox"></div>
+</div>
+
+<script src="js/data.js"></script>
+<script src="js/game.js"></script>
+</body>
+</html>
