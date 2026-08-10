@@ -330,26 +330,42 @@ document.getElementById('btnSound').onclick = function () {
 };
 
 /* ---------------- Rendu ---------------- */
+/* ---------------- Rendu isométrique (style Dofus 1.29) ---------------- */
+var SW = 44, SH = 22; // demi-losange (largeur/hauteur)
+var GX0 = 0, GY0 = 0, GRID_W = 860, GRID_H = 420;
+function isoX(x, y) { return (x - y) * SW + GX0; }
+function isoY(x, y) { return (x + y) * SH + GY0; }
+function isoPctX(x, y) { return (isoX(x, y) / GRID_W * 100) + '%'; }
+function isoPctY(x, y, off) { return ((isoY(x, y) + (off || 0)) / GRID_H * 100) + '%'; }
 function buildGrid() {
   var g = document.getElementById('grid');
   g.innerHTML = '';
+  var ns = 'http://www.w3.org/2000/svg';
+  GX0 = (ROWS - 1) * SW + 24;
+  GY0 = 24;
+  GRID_W = (COLS - 1) * SW + GX0 + SW + 24;
+  GRID_H = ((COLS - 1) + (ROWS - 1)) * SH + GY0 + SH + 24;
+  g.setAttribute('viewBox', '0 0 ' + GRID_W + ' ' + GRID_H);
   grid = []; cellEls = [];
   for (var y = 0; y < ROWS; y++) {
     grid.push([]); cellEls.push([]);
     for (var x = 0; x < COLS; x++) {
+      var cx = isoX(x, y), cy = isoY(x, y);
+      var poly = document.createElementNS(ns, 'polygon');
+      poly.setAttribute('points', (cx - SW) + ',' + cy + ' ' + cx + ',' + (cy - SH) + ' ' + (cx + SW) + ',' + cy + ' ' + cx + ',' + (cy + SH));
+      poly.setAttribute('data-x', x); poly.setAttribute('data-y', y);
+      poly.className.baseVal = 'cell ' + ((x + y) % 2 ? 'odd' : 'even');
+      g.appendChild(poly);
       grid[y].push(OBST[x + ',' + y] ? 1 : 0);
-      var c = document.createElement('div');
-      c.className = 'cell ' + ((x + y) % 2 ? 'odd' : 'even');
-      c.setAttribute('data-x', x); c.setAttribute('data-y', y);
+      cellEls[y].push(poly);
       if (grid[y][x] === 1) {
-        c.className += ' obs';
-        var o = document.createElement('div');
-        o.className = 'obstacle';
-        o.textContent = ((x * 7 + y * 13) % 3 === 0) ? '🌲' : ((x * 5 + y * 11) % 3 === 0) ? '🪨' : '🌳';
-        c.appendChild(o);
+        poly.className.baseVal += ' obs';
+        var img = document.createElementNS(ns, 'image');
+        img.setAttribute('href', 'assets/img/rocks.webp');
+        img.setAttribute('x', cx - 17); img.setAttribute('y', cy - 17);
+        img.setAttribute('width', 34); img.setAttribute('height', 34);
+        g.appendChild(img);
       }
-      g.appendChild(c);
-      cellEls[y].push(c);
     }
   }
   unitP = document.createElement('div');
@@ -358,8 +374,13 @@ function buildGrid() {
   unitB = document.createElement('div');
   unitB.className = 'unit uB';
   unitB.innerHTML = '<span class="uIco"></span><div class="hpbar"><i></i></div><div class="hplabel"></div>';
+  var wrap = document.getElementById('gridWrap');
+  wrap.appendChild(unitP); wrap.appendChild(unitB);
 }
-function placeUnit(unit, x, y) { cellEls[y][x].appendChild(unit); }
+function placeUnit(unit, x, y) {
+  unit.style.left = isoPctX(x, y);
+  unit.style.top = isoPctY(x, y, -2);
+}
 function setUnitHp(unit, cur, max) {
   unit.querySelector('.hpbar i').style.width = Math.max(0, cur / max * 100) + '%';
   unit.querySelector('.hplabel').textContent = cur + ' / ' + max;
@@ -377,11 +398,49 @@ function renderProg() {
 function setUnitImg(unit, src) {
   var ico = unit.querySelector('.uIco');
   if (!ico) return;
-  if (!ico.firstChild) {
+  if (src === 'clofus.webp') {
+    if (!ico.querySelector('.sprite')) {
+      ico.innerHTML = '';
+      var sp = document.createElement('div');
+      sp.className = 'sprite';
+      ico.appendChild(sp);
+      setSpriteFrame(sp, 0, unit === unitP ? 7 : 3);
+    }
+    return;
+  }
+  if (!ico.querySelector('img')) {
+    ico.innerHTML = '';
     var im = document.createElement('img');
     ico.appendChild(im);
   }
-  ico.firstChild.src = 'assets/img/' + src;
+  ico.querySelector('img').src = 'assets/img/' + src;
+}
+var SPRITE_FRAMES = null;
+function setSpriteFrame(el, col, row) {
+  el.style.backgroundPosition = (-col * 100) + '% ' + (-row * 100) + '%';
+}
+function spriteRowFor(dx, dy) {
+  if (dx > 0) return 7;  // droite
+  if (dx < 0) return 3;  // gauche
+  if (dy > 0) return 1;  // bas
+  if (dy < 0) return 5;  // haut
+  return 7;
+}
+function animUnitMove(unit, u, ox, oy) {
+  var sp = unit.querySelector('.sprite');
+  if (!sp) return;
+  var row = spriteRowFor(u.x - ox, u.y - oy);
+  if (SPRITE_FRAMES) { clearInterval(SPRITE_FRAMES); SPRITE_FRAMES = null; }
+  var frames = [1, 2, 3, 2, 1], i = 0;
+  setSpriteFrame(sp, frames[i], row);
+  SPRITE_FRAMES = setInterval(function () {
+    if (!sp.isConnected) { clearInterval(SPRITE_FRAMES); SPRITE_FRAMES = null; return; }
+    i++;
+    if (i >= frames.length) {
+      clearInterval(SPRITE_FRAMES); SPRITE_FRAMES = null;
+      setSpriteFrame(sp, 0, row);
+    } else setSpriteFrame(sp, frames[i], row);
+  }, 85);
 }
 function render() {
   if (!S) return;
@@ -416,12 +475,13 @@ function render() {
       }
     }
   }
+  var wrapEl = document.getElementById('gridWrap');
+  var oldLabels = wrapEl.querySelectorAll('.costLabel');
+  for (var li = 0; li < oldLabels.length; li++) oldLabels[li].remove();
   for (y = 0; y < ROWS; y++) {
     for (x = 0; x < COLS; x++) {
       var c = cellEls[y][x];
       c.classList.remove('mv', 'sp', 'range', 'nlos', 'danger');
-      var lbl = c.querySelector('.costLabel');
-      if (lbl) lbl.remove();
       if (grid[y][x] === 1) continue;
       k = x + ',' + y;
       if (reach[k]) {
@@ -430,7 +490,9 @@ function render() {
           var lb = document.createElement('span');
           lb.className = 'costLabel';
           lb.textContent = reach[k];
-          c.appendChild(lb);
+          lb.style.left = isoPctX(x, y);
+          lb.style.top = isoPctY(x, y, -14);
+          wrapEl.appendChild(lb);
           c.classList.add('danger');
         }
       } else if (targets[k]) c.classList.add('sp');
@@ -529,14 +591,18 @@ function showDmg(unit, x, y, text, cls) {
   var d = document.createElement('div');
   d.className = 'dmg' + (cls ? ' ' + cls : '');
   d.textContent = text;
-  cellEls[y][x].appendChild(d);
+  d.style.left = isoPctX(x, y);
+  d.style.top = isoPctY(x, y, -40);
+  document.getElementById('gridWrap').appendChild(d);
   setTimeout(function () { if (d.parentNode) d.parentNode.removeChild(d); }, 1000);
 }
 function showMsg(x, y, text) {
   var d = document.createElement('div');
   d.className = 'msg';
   d.textContent = text;
-  cellEls[y][x].appendChild(d);
+  d.style.left = isoPctX(x, y);
+  d.style.top = isoPctY(x, y, -34);
+  document.getElementById('gridWrap').appendChild(d);
   setTimeout(function () { if (d.parentNode) d.parentNode.removeChild(d); }, 1200);
 }
 function flashCell(x, y) {
@@ -779,15 +845,19 @@ function resolveSpell(caster, spell, tx, ty) {
     return true;
   }
   if (spell.type === 'tp') {
+    var tpx = caster.x, tpy = caster.y;
     caster.x = tx; caster.y = ty;
     sfx('move');
     flashCell(tx, ty);
+    animUnitMove(caster === S.player ? unitP : unitB, caster, tpx, tpy);
     log('<span class="' + whoCls + '">' + caster.n + '</span> lance <b>' + spell.i + ' ' + spell.n + '</b> (' + spell.cost + ' PA) et se téléporte !');
     render();
     return true;
   }
   if (spell.type === 'push') {
+    var ppx = target.x, ppy = target.y;
     var pushed = pushUnit(caster, target, spell.push);
+    if (pushed > 0) animUnitMove(target === S.player ? unitP : unitB, target, ppx, ppy);
     sfx('push');
     log('<span class="' + whoCls + '">' + caster.n + '</span> lance <b>' + spell.i + ' ' + spell.n + '</b> (' + spell.cost + ' PA) : 💨 repoussé' + (pushed > 1 ? ' x' + pushed : '') + (pushed === 0 ? ' (bloqué)' : '') + '.');
     render();
@@ -1112,10 +1182,12 @@ function clickCell(x, y) {
   } else {
     var pc = pathToCosts(S.player.x, S.player.y, x, y, S.player.pm, S.bot);
     if (pc) {
+      var ox = S.player.x, oy = S.player.y;
       S.player.x = x; S.player.y = y;
       S.player.pm -= pc.cost;
       sfx('move');
       flashCell(x, y);
+      animUnitMove(unitP, S.player, ox, oy);
       render();
     }
   }
@@ -1176,10 +1248,12 @@ function botTurn() {
     var pc = pathToCosts(S.bot.x, S.bot.y, best[0], best[1], S.bot.pm, S.player);
     if (pc && pc.path.length) {
       var last = pc.path[Math.min(S.bot.pm, pc.path.length) - 1];
+      var bpx = S.bot.x, bpy = S.bot.y;
       S.bot.x = last[0]; S.bot.y = last[1];
       S.bot.pm -= pc.cost;
       sfx('move');
       flashCell(S.bot.x, S.bot.y);
+      animUnitMove(unitB, S.bot, bpx, bpy);
       render();
     }
   }
