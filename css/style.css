@@ -1,8 +1,10 @@
 
+@font-face { font-family: 'Arcade'; src: url('../assets/fonts/arcade.ttf') format('truetype'); }
+@font-face { font-family: 'Playmegames'; src: url('../assets/fonts/playmegames.ttf') format('truetype'); }
 * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
 html, body { height: 100%; }
 body {
-  font-family: 'Segoe UI', Verdana, sans-serif;
+  font-family: 'Playmegames', 'Segoe UI', Verdana, sans-serif;
   background: linear-gradient(160deg, #2e5d3a 0%, #23482d 45%, #1c3823 100%);
   color: #f3ecd8;
   display: flex; justify-content: center; align-items: flex-start;
@@ -113,15 +115,16 @@ header h1 { font-size: 22px; letter-spacing: 1px; white-space: nowrap; }
   color: #2b4a1e; z-index: 2; pointer-events: none; }
 
 .unit {
-  position: absolute; inset: 5%; border-radius: 50%;
+  position: absolute; inset: 2%;
   display: flex; align-items: center; justify-content: center;
-  font-size: 32px; z-index: 3; pointer-events: none;
-  border: 2px solid rgba(0,0,0,0.5);
-  box-shadow: 0 2px 6px rgba(0,0,0,0.55);
+  z-index: 3; pointer-events: none;
   transition: left 0.3s ease, top 0.3s ease;
+  filter: drop-shadow(0 3px 3px rgba(0,0,0,0.5));
 }
-.unit.uP { background: radial-gradient(circle at 35% 30%, #ffc078, #d9480f); }
-.unit.uB { background: radial-gradient(circle at 35% 30%, #a5d8ff, #1971c2); }
+.unit .uIco { display: flex; align-items: center; justify-content: center; width: 100%; height: 100%; }
+.unit .uIco img { width: 100%; height: 100%; object-fit: contain; }
+.unit.uP .uIco img { transform: scaleX(1); }
+.unit.uB .uIco img { transform: scaleX(-1); }
 .unit.bounce { animation: bounce 0.4s ease; }
 @keyframes bounce { 0% { transform: scale(1); } 30% { transform: scale(1.25) translateY(-4px); }
   60% { transform: scale(0.95); } 100% { transform: scale(1); } }
@@ -177,15 +180,19 @@ header h1 { font-size: 22px; letter-spacing: 1px; white-space: nowrap; }
 #log .p { color: #a5d8ff; }
 
 #overlay {
-  position: fixed; inset: 0; background: rgba(0,0,0,0.78); z-index: 50;
+  position: fixed; inset: 0; z-index: 50;
+  background: url('../assets/img/map-blurred.webp') no-repeat center/cover;
   display: flex; align-items: center; justify-content: center; overflow-y: auto; padding: 14px;
 }
+#overlay::before { content: ''; position: absolute; inset: 0; background: rgba(0,0,0,0.55); }
 #overlay.hidden { display: none; }
 #ovBox {
-  background: linear-gradient(180deg, #2a1e0e, #1a1206);
+  background: linear-gradient(180deg, rgba(42,30,14,0.96), rgba(26,18,6,0.98));
   border: 3px solid #ffd75e; border-radius: 14px; padding: 22px 26px; text-align: center;
   box-shadow: 0 10px 30px rgba(0,0,0,0.7); max-width: 560px; width: 100%;
 }
+.menuLogo { width: 150px; height: 97px; margin: 0 auto 8px;
+  background: url('../assets/img/clofus-logo.webp') no-repeat center/contain; }
 #ovTitle { font-size: 26px; font-weight: bold; margin-bottom: 6px; letter-spacing: 1px; }
 #ovMsg { font-size: 13px; color: #cfc6a8; margin-bottom: 14px; }
 .menuRow { display: flex; gap: 14px; justify-content: center; margin-bottom: 14px; flex-wrap: wrap; }

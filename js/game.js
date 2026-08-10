@@ -374,10 +374,21 @@ function renderProg() {
   document.getElementById('xpFill').style.width = Math.min(100, PROG.xp / xpNeed() * 100) + '%';
   document.getElementById('progKamas').textContent = PROG.kamas + ' k';
 }
+function setUnitImg(unit, src) {
+  var ico = unit.querySelector('.uIco');
+  if (!ico) return;
+  if (!ico.firstChild) {
+    var im = document.createElement('img');
+    ico.appendChild(im);
+  }
+  ico.firstChild.src = 'assets/img/' + src;
+}
 function render() {
   if (!S) return;
   var i, k, x, y;
 
+  setUnitImg(unitP, S.player.img || 'clofus.webp');
+  setUnitImg(unitB, S.bot.img || 'clofus.webp');
   placeUnit(unitP, S.player.x, S.player.y);
   placeUnit(unitB, S.bot.x, S.bot.y);
   setUnitHp(unitP, S.player.hp, S.player.maxHp);
@@ -601,7 +612,7 @@ function makeUnit(def, isPlayer) {
   var spells = [];
   for (var i = 0; i < def.spells.length; i++) if (def.spells[i].lvl <= PROG.lvl) spells.push(def.spells[i]);
   return {
-    n: def.n, icon: def.icon, x: isPlayer ? 1 : 11, y: 4,
+    n: def.n, icon: def.icon, img: def.img || 'clofus.webp', x: isPlayer ? 1 : 11, y: 4,
     hp: def.hp + n * 5, maxHp: def.hp + n * 5,
     pa: 6, paMax: 6, pm: 3, pmMax: 3,
     res: def.res, el: def.el, style: def.style, stats: stats,
@@ -932,7 +943,7 @@ function renderMenu() {
   busy = false;
   document.getElementById('overlay').classList.remove('hidden');
   var box = document.getElementById('ovBox');
-  var html = '<div id="ovTitle" style="color:#ffd75e">⚔️ DOFUS DUEL — 1.29</div>';
+  var html = '<div class="menuLogo"></div><div id="ovTitle" style="color:#ffd75e">⚔️ DOFUS DUEL — 1.29</div>';
   html += '<div id="ovMsg">Choisis ta classe et ton adversaire. Les sorts s\'apprennent avec ton niveau (comme en 1.29).</div>';
   html += '<div class="menuRow">';
   html += '<div class="menuCol"><h3>Ta classe</h3>';
@@ -987,7 +998,7 @@ function renderHelp() {
   busy = false;
   document.getElementById('overlay').classList.remove('hidden');
   var box = document.getElementById('ovBox');
-  var html = '<div id="ovTitle" style="color:#ffd75e">📖 GUIDE DU DUEL</div>';
+  var html = '<div class="menuLogo"></div><div id="ovTitle" style="color:#ffd75e">📖 GUIDE DU DUEL</div>';
   html += '<div id="ovMsg">Tout ce qu\'il faut savoir avant de combattre.</div>';
   html += '<div class="helpBlock"><h4>🎯 Objectif</h4><p>Réduis les PV de l\'adversaire à 0. Chaque tour : <b>6 PA</b> (lancer des sorts) et <b>3 PM</b> (se déplacer).</p></div>';
   html += '<div class="helpBlock"><h4>📜 Sorts & niveau</h4><p>Comme en Dofus 1.29, les 20 sorts de ta classe s\'apprennent avec le niveau (1, 3, 6, 9, 13, 17, 21, 26, 31, 36, 42, 48, 54, 60, 70, 80, 90, 100) — les plus puissants (Épée de Iop, Colère de Iop, Maîtrise de l\'Arc) arrivent au niv 90-100. Le niveau max est 200 : après 100, tu gagnes encore PV et dégâts. Ton adversaire a le même niveau que toi.</p></div>';

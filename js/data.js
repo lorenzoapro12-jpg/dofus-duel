@@ -10,7 +10,7 @@
    base d2j_static des émulateurs 1.29). Dégâts calibrés sur l'échelle PV du jeu.
    ------------------------------------------------------------------ */
 var CLASSES = {
-  iop: { n: 'Iop', icon: '⚔️', hp: 360, el: 'Terre', mainStat: 'force',
+  iop: { n: 'Iop', icon: '⚔️', img: 'clofus.webp', hp: 360, el: 'Terre', mainStat: 'force',
     stats: { force: 30, intel: 10, chance: 10, agi: 10, vita: 40, sag: 15 },
     res: { Neutre: 0, Terre: 15, Feu: 0, Eau: 0, Air: -10 },
     style: 'melee', desc: 'Guerrier 1.29. Force brute : mêlée, buffs de dégâts, Bond, repousses, gros sorts Terre.',
@@ -36,7 +36,7 @@ var CLASSES = {
       { id: 'epeedeiop', n: 'Épée de Iop', i: '🗡️', lvl: 90, cost: 4, min: 1, max: 4, d: [18, 30], el: 'Terre', los: true, type: 'dmg', desc: 'La grande frappe de l\'Iop' },
       { id: 'colere', n: 'Colère de Iop', i: '😡', lvl: 100, cost: 6, min: 1, max: 1, d: [40, 55], el: 'Terre', los: true, type: 'dmg', desc: 'Le coup ultime de l\'Iop (7 PA en 1.29, 6 ici)' }
     ] },
-  cra: { n: 'Cra', icon: '🏹', hp: 300, el: 'Air', mainStat: 'agi',
+  cra: { n: 'Cra', icon: '🏹', img: 'clofus.webp', hp: 300, el: 'Air', mainStat: 'agi',
     stats: { force: 10, intel: 10, chance: 10, agi: 35, vita: 30, sag: 15 },
     res: { Neutre: 0, Terre: -10, Feu: 0, Eau: 0, Air: 15 },
     style: 'ranged', desc: 'Archer 1.29. Agilité : reste à distance, flèches variées, contrôle et poison.',
@@ -74,7 +74,7 @@ var ADVERSARIES = {
    dégâts calibrés sur l'échelle PV du jeu. IA : 1=attack, 7=flee (Tofu), heal (Royal).
    ------------------------------------------------------------------ */
 var MONSTRES = {
-  larve: { n: 'Larve Bleue', icon: '🐛', hp: 120, el: 'Eau', mainStat: 'agi',
+  larve: { n: 'Larve Bleue', icon: '🐛', img: 'minogolem-green.webp', hp: 120, el: 'Eau', mainStat: 'agi',
     stats: { force: 10, intel: 10, chance: 20, agi: 20, vita: 20, sag: 5 },
     res: { Neutre: 0, Terre: -20, Feu: 0, Eau: 10, Air: 0 },
     style: 'melee', ia: 'attack',
@@ -83,7 +83,7 @@ var MONSTRES = {
       { id: 'morsure', n: 'Morsure', i: '🦷', lvl: 1, cost: 3, min: 1, max: 1, d: [12, 18], el: 'Terre', los: true, type: 'dmg', desc: 'Morsure Terre (sort 213)' },
       { id: 'crachat', n: 'Crachat', i: '💧', lvl: 1, cost: 3, min: 1, max: 6, d: [8, 12], el: 'Eau', los: true, type: 'dmg', paDodgeDown: true, desc: 'Crachat Eau, la cible esquive moins les PA (sort 212)' }
     ] },
-  tofu: { n: 'Tofu', icon: '🐦', hp: 100, el: 'Air', mainStat: 'agi',
+  tofu: { n: 'Tofu', icon: '🐦', img: 'minogolem-grey.webp', hp: 100, el: 'Air', mainStat: 'agi',
     stats: { force: 5, intel: 5, chance: 10, agi: 35, vita: 15, sag: 5 },
     res: { Neutre: 0, Terre: -20, Feu: 0, Eau: 0, Air: 20 },
     style: 'ranged', ia: 'flee',
@@ -91,7 +91,7 @@ var MONSTRES = {
     spells: [
       { id: 'piqure', n: 'Piqure', i: '🪶', lvl: 1, cost: 4, min: 1, max: 3, d: [14, 20], el: 'Air', los: true, type: 'dmg', paDodgeDown: true, desc: 'Piqure Air + -esquive PA (sort 1999)' }
     ] },
-  bouftou: { n: 'Bouftou', icon: '🐑', hp: 200, el: 'Neutre', mainStat: 'force',
+  bouftou: { n: 'Bouftou', icon: '🐑', img: 'minogolem-blue.webp', hp: 200, el: 'Neutre', mainStat: 'force',
     stats: { force: 30, intel: 5, chance: 5, agi: 5, vita: 40, sag: 5 },
     res: { Neutre: 10, Terre: -10, Feu: 0, Eau: 0, Air: 0 },
     style: 'melee', ia: 'attack',
@@ -99,7 +99,7 @@ var MONSTRES = {
     spells: [
       { id: 'coup', n: 'Coup de Bouftou', i: '🐏', lvl: 1, cost: 4, min: 1, max: 1, d: [20, 28], el: 'Neutre', los: true, type: 'dmg', desc: 'Coup Neutre (sort 2000)' }
     ] },
-  sanglier: { n: 'Sanglier', icon: '🐗', hp: 180, el: 'Neutre', mainStat: 'force',
+  sanglier: { n: 'Sanglier', icon: '🐗', img: 'minogolem-red.webp', hp: 180, el: 'Neutre', mainStat: 'force',
     stats: { force: 35, intel: 5, chance: 5, agi: 10, vita: 30, sag: 5 },
     res: { Neutre: 0, Terre: 10, Feu: 0, Eau: 0, Air: -10 },
     style: 'melee', ia: 'attack',
@@ -107,7 +107,7 @@ var MONSTRES = {
     spells: [
       { id: 'charge', n: 'Charge', i: '💨', lvl: 1, cost: 4, min: 1, max: 1, d: [16, 24], el: 'Neutre', los: true, type: 'dmg', push: 1, desc: 'Dégâts Neutre + repousse de 1 case (sort 2002)' }
     ] },
-  wabbit: { n: 'Wabbit', icon: '🐰', hp: 220, el: 'Terre', mainStat: 'force',
+  wabbit: { n: 'Wabbit', icon: '🐰', img: 'minogolem-green.webp', hp: 220, el: 'Terre', mainStat: 'force',
     stats: { force: 25, intel: 5, chance: 10, agi: 15, vita: 35, sag: 5 },
     res: { Neutre: 0, Terre: 10, Feu: -10, Eau: 0, Air: 0 },
     style: 'melee', ia: 'attack',
@@ -115,7 +115,7 @@ var MONSTRES = {
     spells: [
       { id: 'coup', n: 'Coup de patte', i: '🥊', lvl: 1, cost: 3, min: 1, max: 1, d: [14, 20], el: 'Terre', los: true, type: 'dmg', desc: 'Coup Terre (sort 213)' }
     ] },
-  chafer: { n: 'Chafer', icon: '💀', hp: 320, el: 'Terre', mainStat: 'force',
+  chafer: { n: 'Chafer', icon: '💀', img: 'minogolem-grey.webp', hp: 320, el: 'Terre', mainStat: 'force',
     stats: { force: 45, intel: 5, chance: 5, agi: 10, vita: 50, sag: 10 },
     res: { Neutre: 0, Terre: 20, Feu: -20, Eau: 0, Air: 0 },
     style: 'melee', ia: 'attack',
@@ -123,7 +123,7 @@ var MONSTRES = {
     spells: [
       { id: 'epee', n: 'Épée du Chafer', i: '⚔️', lvl: 1, cost: 3, min: 1, max: 1, d: [30, 42], el: 'Terre', los: true, type: 'dmg', desc: 'Dégâts Terre (sort 268)' }
     ] },
-  royal: { n: 'Bouftou Royal', icon: '👑', hp: 400, el: 'Neutre', mainStat: 'force',
+  royal: { n: 'Bouftou Royal', icon: '👑', img: 'minogolem-red.webp', hp: 400, el: 'Neutre', mainStat: 'force',
     stats: { force: 50, intel: 10, chance: 10, agi: 5, vita: 60, sag: 15 },
     res: { Neutre: 10, Terre: 20, Feu: 0, Eau: 0, Air: -20 },
     style: 'melee', ia: 'heal',
