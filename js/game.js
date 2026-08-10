@@ -355,11 +355,128 @@ function buildGrid() {
   unitB.innerHTML = '<span class="uIco"></span><div class="hpbar"><i></i></div><div class="hplabel"></div>';
   var wrap = document.getElementById('gridWrap');
   wrap.appendChild(unitP); wrap.appendChild(unitB);
+  
+  // Calque FX pour les animations de sorts
+  var fxGroup = document.createElementNS(ns, 'g');
+  fxGroup.setAttribute('id', 'fxLayer');
+  g.appendChild(fxGroup);
 }
 function placeUnit(unit, x, y) {
   unit.style.left = isoPctX(x, y);
   unit.style.top = isoPctY(x, y, -2);
 }
+
+/* ---------------- Animations de sorts SVG ---------------- */
+var ns_ = 'http://www.w3.org/2000/svg';
+function fxEl(tag) { return document.createElementNS(ns_, tag); }
+function fxLayer() { return document.getElementById('fxLayer'); }
+
+function animCast(x, y, el) {
+  var colors = { Terre: '#c49a3c', Feu: '#ff6622', Eau: '#3399ff', Air: '#88dd44', Neutre: '#cccccc' };
+  var c = colors[el] || '#ffd75e';
+  var cx = isoX(x, y), cy = isoY(x, y);
+  var circle = fxEl('circle');
+  circle.setAttribute('cx', cx); circle.setAttribute('cy', cy);
+  circle.setAttribute('r', 8); circle.setAttribute('fill', c); circle.setAttribute('opacity', '0.8');
+  fxLayer().appendChild(circle);
+  var start = performance.now();
+  (function tick() {
+    var t = (performance.now() - start) / 400;
+    if (t >= 1) { circle.remove(); return; }
+    circle.setAttribute('r', 8 + t * 20);
+    circle.setAttribute('opacity', 0.8 * (1 - t));
+    requestAnimationFrame(tick);
+  })();
+}
+
+function animImpact(x, y, el) {
+  var colors = { Terre: '#c49a3c', Feu: '#ff4422', Eau: '#3399ff', Air: '#88dd44', Neutre: '#999999' };
+  var c = colors[el] || '#ff6b00';
+  var cx = isoX(x, y), cy = isoY(x, y);
+  for (var i = 0; i < 4; i++) {
+    (function (angle) {
+      var line = fxEl('line');
+      line.setAttribute('x1', cx); line.setAttribute('y1', cy);
+      line.setAttribute('x2', cx); line.setAttribute('y2', cy);
+      line.setAttribute('stroke', c); line.setAttribute('stroke-width', '3');
+      line.setAttribute('stroke-linecap', 'round');
+      fxLayer().appendChild(line);
+      var start = performance.now();
+      (function tick() {
+        var t = (performance.now() - start) / 300;
+        if (t >= 1) { line.remove(); return; }
+        var len = t * 20;
+        line.setAttribute('x2', cx + Math.cos(angle) * len);
+        line.setAttribute('y2', cy + Math.sin(angle) * len);
+        line.setAttribute('opacity', 1 - t);
+        requestAnimationFrame(tick);
+      })();
+    })(i * Math.PI / 2 + Math.random() * 0.3);
+  }
+}
+
+function animProjectile(fx, fy, tx, ty, el) {
+  var colors = { Terre: '#c49a3c', Feu: '#ff6622', Eau: '#66bbff', Air: '#aaff44', Neutre: '#dddddd' };
+  var c = colors[el] || '#ffd75e';
+  var sx = isoX(fx, fy), sy = isoY(fx, fy);
+  var ex = isoX(tx, ty), ey = isoY(tx, ty);
+  var dot = fxEl('circle');
+  dot.setAttribute('cx', sx); dot.setAttribute('cy', sy);
+  dot.setAttribute('r', 4); dot.setAttribute('fill', c);
+  fxLayer().appendChild(dot);
+  var start = performance.now();
+  (function tick() {
+    var t = (performance.now() - start) / 250;
+    if (t >= 1) { dot.remove(); return; }
+    dot.setAttribute('cx', sx + (ex - sx) * t);
+    dot.setAttribute('cy', sy + (ey - sy) * t);
+    requestAnimationFrame(tick);
+  })();
+}
+
+function animHeal(x, y) {
+  var cx = isoX(x, y), cy = isoY(x, y);
+  for (var i = 0; i < 3; i++) {
+    setTimeout(function (idx) {
+      var plus = fxEl('text');
+      plus.textContent = '+'; plus.setAttribute('x', cx);
+      plus.setAttribute('y', cy - idx * 6); plus.setAttribute('fill', '#51cf66');
+      plus.setAttribute('font-size', '14'); plus.setAttribute('font-weight', 'bold');
+      plus.setAttribute('text-anchor', 'middle');
+      fxLayer().appendChild(plus);
+      var start = performance.now();
+      (function tick() {
+        var t = (performance.now() - start) / 500;
+        if (t >= 1) { plus.remove(); return; }
+        plus.setAttribute('y', cy - idx * 8 - t * 20);
+        plus.setAttribute('opacity', 1 - t);
+        requestAnimationFrame(tick);
+      })();
+    }, i * 80, i);
+  }
+}
+
+function animBuff(x, y) {
+  var cx = isoX(x, y), cy = isoY(x, y);
+  for (var i = 0; i < 3; i++) {
+    setTimeout(function () {
+      var ring = fxEl('circle');
+      ring.setAttribute('cx', cx); ring.setAttribute('cy', cy);
+      ring.setAttribute('r', 5); ring.setAttribute('fill', 'none');
+      ring.setAttribute('stroke', '#ffd75e'); ring.setAttribute('stroke-width', '2');
+      fxLayer().appendChild(ring);
+      var start = performance.now();
+      (function tick() {
+        var t = (performance.now() - start) / 400;
+        if (t >= 1) { ring.remove(); return; }
+        ring.setAttribute('r', 5 + t * 16);
+        ring.setAttribute('opacity', 1 - t);
+        requestAnimationFrame(tick);
+      })();
+    }, i * 100);
+  }
+}
+
 function setUnitHp(unit, cur, max) {
   unit.querySelector('.hpbar i').style.width = Math.max(0, cur / max * 100) + '%';
   unit.querySelector('.hplabel').textContent = cur + ' / ' + max;
@@ -783,12 +900,13 @@ function resolveSpell(caster, spell, tx, ty) {
       var h1 = rand(spell.d[0], spell.d[1]);
       var healed = healUnit(caster, h1);
       sfx('heal');
+      animHeal(caster.x, caster.y);
       log('<span class="' + whoCls + '">' + caster.n + '</span> lance <b>' + spell.i + ' ' + spell.n + '</b> (' + spell.cost + ' PA) : +' + healed + ' PV.');
       render();
     } else if (spell.self === 'flat') {
       if (spell.flat) { caster.flatTurns = spell.flat.turns; caster.flatBonus = spell.flat.v; }
       if (spell.pct) { caster.powerPctTurns = spell.pct.turns; caster.powerPctBonus = spell.pct.v; }
-      sfx('buff');
+      sfx('buff'); animBuff(caster.x, caster.y);
       showMsg(caster.x, caster.y, '💪 +' + spell.flat.v);
       log('<span class="' + whoCls + '">' + caster.n + '</span> lance <b>' + spell.i + ' ' + spell.n + '</b> (' + spell.cost + ' PA) : +' + spell.flat.v + ' dégâts' + (spell.pct ? ' et +' + Math.round(spell.pct.v * 100) + '%' : '') + ' pendant ' + spell.flat.turns + ' tour' + (spell.flat.turns > 1 ? 's' : '') + ' !');
       render();
@@ -796,7 +914,7 @@ function resolveSpell(caster, spell, tx, ty) {
       if (caster.powerPctTurns > 0) { log('Déjà sous l\'effet d\'un bonus de dégâts !', whoCls); sfx('error'); caster.pa += spell.cost; return false; }
       caster.powerPctTurns = spell.pct.turns;
       caster.powerPctBonus = spell.pct.v;
-      sfx('buff');
+      sfx('buff'); animBuff(caster.x, caster.y);
       showMsg(caster.x, caster.y, '🔱 +' + Math.round(spell.pct.v * 100) + '%');
       log('<span class="' + whoCls + '">' + caster.n + '</span> lance <b>' + spell.i + ' ' + spell.n + '</b> (' + spell.cost + ' PA) : +' + Math.round(spell.pct.v * 100) + '% de dégâts pendant ' + spell.pct.turns + ' tours !');
       render();
@@ -804,7 +922,7 @@ function resolveSpell(caster, spell, tx, ty) {
       if (caster.critUpTurns > 0) { log('Tir Critique déjà actif !', whoCls); sfx('error'); caster.pa += spell.cost; return false; }
       caster.critUpTurns = 3;
       caster.critUpBonus = 0.15;
-      sfx('buff');
+      sfx('buff'); animBuff(caster.x, caster.y);
       showMsg(caster.x, caster.y, '🎯 +15% critique');
       log('<span class="' + whoCls + '">' + caster.n + '</span> lance <b>' + spell.i + ' ' + spell.n + '</b> (' + spell.cost + ' PA) : +15% coups critiques et +20% dégâts pendant 3 tours !');
       render();
@@ -814,7 +932,7 @@ function resolveSpell(caster, spell, tx, ty) {
       caster.vitaBonus = spell.vita.v;
       caster.maxHp += spell.vita.v;
       caster.hp = Math.min(caster.maxHp, caster.hp + spell.vita.v);
-      sfx('buff');
+      sfx('buff'); animBuff(caster.x, caster.y);
       showMsg(caster.x, caster.y, '💚 +' + spell.vita.v);
       log('<span class="' + whoCls + '">' + caster.n + '</span> lance <b>' + spell.i + ' ' + spell.n + '</b> (' + spell.cost + ' PA) : +' + spell.vita.v + ' PV max pendant ' + spell.vita.turns + ' tours !');
       render();
@@ -822,7 +940,7 @@ function resolveSpell(caster, spell, tx, ty) {
       if (caster.rangeUpTurns > 0) { log('Tir Éloigné déjà actif !', whoCls); sfx('error'); caster.pa += spell.cost; return false; }
       caster.rangeUpTurns = 3;
       caster.rangeUpBonus = 2;
-      sfx('buff');
+      sfx('buff'); animBuff(caster.x, caster.y);
       showMsg(caster.x, caster.y, '👁️ +2');
       log('<span class="' + whoCls + '">' + caster.n + '</span> lance <b>' + spell.i + ' ' + spell.n + '</b> (' + spell.cost + ' PA) : +2 de portée pendant 3 tours !');
       render();
@@ -898,10 +1016,12 @@ function resolveSpell(caster, spell, tx, ty) {
     render();
     return true;
   }
+  animCast(caster.x, caster.y, spell.el || 'Neutre');
   for (var h = 0; h < hits.length; h++) {
     var vict = hits[h];
     var calc = computeDmg(caster, spell);
     var dmgRes = applyDamage(vict, calc.d, spell.el);
+    if (h === 0 && dist(caster, vict) > 1) animProjectile(caster.x, caster.y, vict.x, vict.y, spell.el);
     var extra = '';
     if (spell.d2) {
       var calc2 = computeDmg(caster, { d: spell.d2, el: spell.el2 });
@@ -912,6 +1032,7 @@ function resolveSpell(caster, spell, tx, ty) {
     sfx(calc.crit ? 'crit' : 'hit');
     bounceUnit(vict === S.player ? unitP : unitB);
     showDmg(vict, vict.x, vict.y, '-' + dmgRes.d, calc.crit ? 'crit' : null);
+    animImpact(vict.x, vict.y, spell.el);
     if (spell.push && vict === target) {
       var pushed = pushUnit(caster, target, spell.push);
       if (pushed > 0) { extra += ' 💨 Repoussé' + (pushed > 1 ? ' x' + pushed : ''); sfx('push'); }
@@ -940,7 +1061,7 @@ function resolveSpell(caster, spell, tx, ty) {
       caster.flatTurns = spell.flat.turns;
       caster.flatBonus = spell.flat.v;
       extra += ' 💪 +' + spell.flat.v + ' dégâts';
-      sfx('buff');
+      sfx('buff'); animBuff(caster.x, caster.y);
     }
     if (spell.poison && vict === target && !target.poisonTurns) {
       target.poisonTurns = spell.poison.turns;
@@ -1340,10 +1461,12 @@ function botAct() {
     if (sp.type === 'dmg') {
       avg = (sp.d[0] + sp.d[1]) / 2;
       if (sp.d2) avg += (sp.d2[0] + sp.d2[1]) / 2;
+      // Apply stat multiplier (same as computeDmg)
+      avg *= (1 + elBonus(S.bot, sp.el));
       // Scale by current buffs
       if (S.bot.powerPctTurns > 0) avg *= (1 + S.bot.powerPctBonus);
       if (S.bot.flatTurns > 0) avg += S.bot.flatBonus;
-      sc = avg / sp.cost * 10;
+      sc = avg / sp.cost * 20;
       // Bonus for exploiting weakness
       var tres = S.player.res[sp.el] || 0;
       if (tres < -5) sc += 25;
