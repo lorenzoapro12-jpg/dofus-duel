@@ -417,7 +417,12 @@ function setUnitImg(unit, src) {
 }
 var SPRITE_FRAMES = null;
 function setSpriteFrame(el, col, row) {
-  el.style.backgroundPosition = (-col * 100) + '% ' + (-row * 100) + '%';
+  // Sprite sheet 11 colonnes × 8 rangées, background-size: 1100% 800%
+  // background-position en % : le point X% de l'image s'aligne avec X% de l'élément.
+  // Décalage px = (élément - image) × pct/100. Pour montrer la frame (col,row) :
+  //   horizontal : pct = col × 100/(11-1) = col × 10
+  //   vertical   : pct = row × 100/(8-1)  = row × 14.2857
+  el.style.backgroundPosition = (col * 10) + '% ' + (row * (100 / 7)) + '%';
 }
 function spriteRowFor(dx, dy) {
   if (dx > 0) return 7;  // droite
