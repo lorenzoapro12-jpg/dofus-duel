@@ -11,19 +11,15 @@ body {
   min-height: 100vh; padding: 10px 8px 30px;
   user-select: none;
 }
-#app { width: 100%; max-width: 1200px; }
+#app { width: 100%; max-width: 1600px; }
 header {
   display: flex; align-items: center; justify-content: space-between; gap: 10px;
   background: rgba(20, 38, 24, 0.85); border: 2px solid #b3924f;
-  border-radius: 12px; padding: 10px 18px; margin-bottom: 12px;
+  border-radius: 12px; padding: 6px 14px; margin-bottom: 6px;
   box-shadow: 0 4px 10px rgba(0,0,0,0.4);
 }
 header h1 { font-size: 22px; letter-spacing: 1px; white-space: nowrap; }
 .vs { color: #ffd75e; font-style: italic; font-size: 17px; margin: 0 6px; }
-#prog { display: flex; align-items: center; gap: 8px; font-size: 14px; color: #cfc6a8; white-space: nowrap; }
-#prog b { color: #ffd75e; }
-#xpBar { width: 80px; height: 9px; background: #201509; border-radius: 4px; overflow: hidden; border: 1px solid #000; }
-#xpFill { height: 100%; width: 0%; background: linear-gradient(180deg, #ffd75e, #b3924f); transition: width 0.4s; }
 #btnSound { background: #2a1e0e; border: 1px solid #b3924f; color: #ffd75e;
   font-size: 19px; border-radius: 6px; padding: 5px 10px; cursor: pointer; flex-shrink: 0; }
 #btnSound:hover { background: #3a2c14; }
@@ -32,12 +28,12 @@ header h1 { font-size: 22px; letter-spacing: 1px; white-space: nowrap; }
 #btnHelp:hover { background: #3a2c14; }
 
 #turnBanner { text-align: center; font-weight: bold; font-size: 16px; letter-spacing: 1px;
-  border-radius: 8px; padding: 7px 12px; margin-bottom: 8px; border: 2px solid #b3924f;
+  border-radius: 8px; padding: 4px 10px; margin-bottom: 4px; border: 2px solid #b3924f;
   background: rgba(20, 38, 24, 0.85); color: #cfc6a8; }
 #turnBanner.mine { background: #1e3a24; color: #8ce99a; border-color: #51cf66; }
 #turnBanner.theirs { background: #3a1e1e; color: #ffa8a8; border-color: #ff6b6b; }
 #hint { text-align: center; font-size: 14px; color: #cfc6a8; background: rgba(10, 20, 12, 0.7);
-  border: 1px solid #b3924f; border-radius: 8px; padding: 7px 14px; margin-bottom: 10px; min-height: 22px;
+  border: 1px solid #b3924f; border-radius: 8px; padding: 4px 10px; margin-bottom: 6px; min-height: 22px;
   line-height: 1.4; }
 .cell.range { background: #ffe8b3; box-shadow: inset 0 0 0 2px #f0b429; }
 .cell.nlos { background: #ffb3b3; box-shadow: inset 0 0 0 2px #e03131; }
@@ -66,10 +62,10 @@ header h1 { font-size: 22px; letter-spacing: 1px; white-space: nowrap; }
   padding: 10px 22px; cursor: pointer; margin-top: 10px; }
 #btnHelpGo:hover { background: linear-gradient(180deg, #cba75f, #9a7c3b); }
 
-#hud { display: flex; gap: 14px; align-items: flex-start; justify-content: center; margin-bottom: 12px; }
+#hud { display: flex; gap: 10px; align-items: flex-start; justify-content: center; margin-bottom: 6px; }
 .panel {
   background: rgba(20, 38, 24, 0.9); border: 2px solid #b3924f; border-radius: 12px;
-  padding: 12px 16px; min-width: 200px; box-shadow: 0 4px 10px rgba(0,0,0,0.4);
+  padding: 10px 14px; min-width: 180px; max-width: 220px; box-shadow: 0 4px 10px rgba(0,0,0,0.4);
 }
 .pname { font-weight: bold; font-size: 17px; margin-bottom: 7px; white-space: nowrap; }
 .bar { position: relative; height: 20px; background: #201509; border: 1px solid #000;
@@ -91,7 +87,7 @@ header h1 { font-size: 22px; letter-spacing: 1px; white-space: nowrap; }
 .shieldBadge { display: inline-block; background: #1c3a5e; border: 1px solid #74c0fc; color: #a5d8ff;
   border-radius: 8px; padding: 0 8px; margin-bottom: 3px; font-size: 13px; font-weight: bold; }
 
-#gridWrap { flex: 1 1 0; min-width: 0; width: auto; max-width: 820px; position: relative; }
+#gridWrap { flex: 1 1 0; min-width: 0; width: auto; max-width: 960px; position: relative; }
 #grid {
   display: block; width: 100%; height: auto;
   background: url('../assets/img/map.webp') no-repeat center/cover;
@@ -115,7 +111,7 @@ header h1 { font-size: 22px; letter-spacing: 1px; white-space: nowrap; }
   background: rgba(255,255,255,0.75); border-radius: 4px; padding: 0 4px; }
 
 .unit {
-  position: absolute; width: 46px; height: 69px; margin-left: -23px; margin-top: -64px;
+  position: absolute; width: 64px; height: 96px; margin-left: -32px; margin-top: -90px;
   z-index: 6; pointer-events: none;
   transition: left 0.3s ease, top 0.3s ease;
   filter: drop-shadow(0 3px 3px rgba(0,0,0,0.5));
@@ -150,7 +146,7 @@ header h1 { font-size: 22px; letter-spacing: 1px; white-space: nowrap; }
 @keyframes msgFade { 0% { transform: scale(0.6); opacity: 0; }
   20% { transform: scale(1); opacity: 1; } 70% { opacity: 1; } 100% { opacity: 0; } }
 
-#actions { display: flex; gap: 12px; align-items: stretch; margin-bottom: 12px; }
+#actions { display: flex; gap: 10px; align-items: stretch; margin-bottom: 6px; }
 #spells { display: flex; gap: 8px; flex: 1; flex-wrap: wrap; }
 .spellBtn {
   flex: 1 1 96px; min-width: 92px;
@@ -217,7 +213,6 @@ header h1 { font-size: 22px; letter-spacing: 1px; white-space: nowrap; }
   padding: 10px 22px; cursor: pointer; margin: 4px;
 }
 #btnFight:hover, #btnAgain:hover, #btnMenu:hover { background: linear-gradient(180deg, #cba75f, #9a7c3b); }
-#progRow { font-size: 12px; color: #cfc6a8; margin-bottom: 10px; }
 
 @media (max-width: 720px) {
   #hud { flex-direction: column; align-items: center; }
@@ -226,8 +221,6 @@ header h1 { font-size: 22px; letter-spacing: 1px; white-space: nowrap; }
   header { padding: 6px 10px; gap: 6px; }
   header h1 { font-size: 14px; }
   .vs { font-size: 12px; }
-  #prog { font-size: 10px; gap: 5px; }
-  #xpBar { width: 46px; height: 7px; }
   #btnSound, #btnHelp { font-size: 15px; padding: 3px 7px; }
   #turnBanner { font-size: 12px; padding: 5px 8px; }
   #hint { font-size: 12px; padding: 5px 10px; min-height: 18px; }
