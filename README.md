@@ -20,7 +20,7 @@ css/style.css       — styles (thème Dofus)
 js/data.js          — classes, sorts, monstres (données 1.29)
 js/game.js          — moteur de combat, IA du bot, menu, progression
 assets/music/       — musiques 1.29 (amakna.mp3, combat-amakna.mp3)
-assets/img/         — sprites (réserve, non encore utilisés)
+assets/img/         — sprites (Clofus animé, minogolems, carte, rochers, logo)
 ```
 
 ## Sources des données 1.29

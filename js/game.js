@@ -35,7 +35,6 @@ function addRewards(xp, kamas) {
   if (PROG.lvl >= 200) PROG.xp = 0;
   saveProg();
 }
-function lvlBonus() { return { hp: (PROG.lvl - 1) * 5, main: (PROG.lvl - 1) }; }
 function statBonus(mainStat, n) {
   var s = { force: 0, intel: 0, chance: 0, agi: 0, vita: 0, sag: 0 };
   if (mainStat && n > 0) s[mainStat] = n;
@@ -245,7 +244,7 @@ function pathToCosts(sx, sy, tx, ty, pm, enemy) {
 }
 
 /* ---------------- Audio ---------------- */
-var actx = null, mg = null, sfxg = null, musicOn = true, musicTimer = null, beatN = 0;
+var actx = null, sfxg = null, musicOn = true;
 function initAudio() {
   if (actx) {
     if (actx.state === 'suspended') actx.resume();
@@ -253,9 +252,7 @@ function initAudio() {
   }
   try {
     actx = new (window.AudioContext || window.webkitAudioContext)();
-    mg = actx.createGain(); mg.gain.value = 0.40; mg.connect(actx.destination);
     sfxg = actx.createGain(); sfxg.gain.value = 2.5; sfxg.connect(actx.destination);
-    musicTimer = setInterval(musicTick, 150);
   } catch (e) {}
 }
 function tone(f, dur, vol, type, slide, dest) {
@@ -287,17 +284,6 @@ function sfx(name) {
     setTimeout(function(){ tone(784, 0.14, 0.28, 'square'); }, 280); setTimeout(function(){ tone(1046, 0.3, 0.28, 'square'); }, 420); }
   else if (name === 'lose') { tone(320, 0.3, 0.26, 'sawtooth', -180); setTimeout(function(){ tone(160, 0.5, 0.26, 'sawtooth', -80); }, 320); }
 }
-function musicTick() {
-  if (!actx || !musicOn) return;
-  var CHORDS = [[220, 261.6, 329.6], [174.6, 220, 261.6], [196, 261.6, 329.6], [196, 246.9, 293.7]];
-  var b = beatN % 16;
-  var ch = CHORDS[Math.floor(b / 4)];
-  if (b % 4 === 0) tone(ch[0] / 2, 0.16, 0.16, 'sine', 0, mg);
-  if (b % 4 === 2) tone(ch[2], 0.12, 0.07, 'triangle', 0, mg);
-  if (b % 8 === 0) tone(120, 0.10, 0.20, 'sine', -90, mg);
-  if (b % 2 === 1) tone(6000, 0.03, 0.02, 'square', 0, mg);
-  beatN++;
-}
 /* Musiques officielles Dofus 1.29 (MP3, assets/music) — bascule menu/combat */
 var MUS_IDS = ['musMenu', 'musFight'];
 function playMusic(id) {
@@ -324,7 +310,6 @@ document.getElementById('btnSound').onclick = function () {
   initAudio();
   musicOn = !musicOn;
   this.textContent = musicOn ? '🔊' : '🔇';
-  if (mg) mg.gain.value = musicOn ? 0.40 : 0;
   if (musicOn) playMusic(S && !S.over ? 'musFight' : 'musMenu');
   else stopMusic();
 };

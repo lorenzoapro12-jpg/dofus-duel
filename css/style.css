@@ -24,8 +24,6 @@ header h1 { font-size: 22px; letter-spacing: 1px; white-space: nowrap; }
 #prog b { color: #ffd75e; }
 #xpBar { width: 80px; height: 9px; background: #201509; border-radius: 4px; overflow: hidden; border: 1px solid #000; }
 #xpFill { height: 100%; width: 0%; background: linear-gradient(180deg, #ffd75e, #b3924f); transition: width 0.4s; }
-#round { background: #3a2c14; border: 1px solid #b3924f; border-radius: 6px;
-  padding: 4px 12px; font-size: 14px; font-weight: bold; white-space: nowrap; }
 #btnSound { background: #2a1e0e; border: 1px solid #b3924f; color: #ffd75e;
   font-size: 19px; border-radius: 6px; padding: 5px 10px; cursor: pointer; flex-shrink: 0; }
 #btnSound:hover { background: #3a2c14; }
@@ -244,7 +242,6 @@ header h1 { font-size: 22px; letter-spacing: 1px; white-space: nowrap; }
   #bSpells .bSpell { font-size: 15px; min-width: 30px; padding: 2px 4px; }
   #bSpells .bSpell small { font-size: 8px; }
   #spellInfo { font-size: 12px; min-height: 36px; padding: 7px 10px; }
-  .obstacle { font-size: 16px; }
   .costLabel { font-size: 8px; }
   .unit { font-size: 20px; }
   .unit .hplabel { font-size: 8px; top: -16px; }
