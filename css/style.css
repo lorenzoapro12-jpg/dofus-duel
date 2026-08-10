@@ -120,6 +120,10 @@ header h1 { font-size: 22px; letter-spacing: 1px; white-space: nowrap; }
 .unit .uIco img { max-width: 100%; max-height: 100%; object-fit: contain; }
 .unit.uP .uIco img { transform: scaleX(1); }
 .unit.uB .uIco img { transform: scaleX(-1); }
+.unit.minion { width: 40px; height: 56px; margin-left: -20px; margin-top: -50px; z-index: 5; }
+.unit.minion .hpbar { height: 4px; top: -6px; }
+.unit.minion .hplabel { font-size: 8px; top: -14px; }
+.unit.minion .uIco { font-size: 18px; }
 .sprite { position: absolute; inset: 0;
   background: url('../assets/img/sprite_global.webp') no-repeat;
   background-size: 1100% 800%; image-rendering: pixelated; }

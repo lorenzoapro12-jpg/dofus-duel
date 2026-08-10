@@ -52,8 +52,14 @@ function dist(a, b) { return Math.abs(a.x - b.x) + Math.abs(a.y - b.y); }
 function rand(min, max) { return Math.floor(Math.random() * (max - min + 1)) + min; }
 function cellBlocked(x, y) { return !inGrid(x, y) || grid[y][x] === 1; }
 function occupiedBy(x, y) {
-  if (S.player.x === x && S.player.y === y) return true;
-  if (S.bot.x === x && S.bot.y === y) return true;
+  if (!S) return false; // menu, pas encore en combat
+  if (S.player && S.player.x === x && S.player.y === y) return true;
+  if (S.bot && S.bot.x === x && S.bot.y === y) return true;
+  // Check minions
+  if (S.player.minions) for (var i = 0; i < S.player.minions.length; i++)
+    if (S.player.minions[i].x === x && S.player.minions[i].y === y) return true;
+  if (S.bot.minions) for (var i = 0; i < S.bot.minions.length; i++)
+    if (S.bot.minions[i].x === x && S.bot.minions[i].y === y) return true;
   return false;
 }
 function log(msg, cls) {
@@ -801,8 +807,123 @@ function makeUnit(def, isPlayer) {
     slowTurns: 0, paDodgeDownTurns: 0, subRangeTurns: 0, subRangeBonus: 2,
     vulnTurns: 0, vulnPct: 0,
     poisonTurns: 0, poisonDmg: 0,
-    shield: 0, immobilized: false
+    shield: 0, immobilized: false, minions: []
   };
+}
+
+/* ---------------- Invocations ---------------- */
+function summonMinion(owner, summonDef) {
+  // Find free adjacent cell
+  var dirs = [[1,0],[-1,0],[0,1],[0,-1],[1,1],[-1,-1],[1,-1],[-1,1]];
+  var mx = owner.x, my = owner.y;
+  var placed = false;
+  for (var i = 0; i < dirs.length; i++) {
+    var nx = owner.x + dirs[i][0], ny = owner.y + dirs[i][1];
+    if (inGrid(nx, ny) && !cellBlocked(nx, ny) && !occupiedBy(nx, ny)) {
+      // Also check not occupied by another minion
+      var free = true;
+      var allUnits = [S.player, S.bot];
+      for (var u = 0; u < allUnits.length; u++) {
+        if (allUnits[u].minions) {
+          for (var m = 0; m < allUnits[u].minions.length; m++) {
+            if (allUnits[u].minions[m].x === nx && allUnits[u].minions[m].y === ny) { free = false; break; }
+          }
+        }
+      }
+      if (free) { mx = nx; my = ny; placed = true; break; }
+    }
+  }
+  if (!placed) { log("Pas de place pour l'invocation !", 'c'); return null; }
+  
+  var m = {
+    n: summonDef.n, icon: summonDef.icon, x: mx, y: my,
+    hp: summonDef.hp, maxHp: summonDef.hp,
+    pa: 4, paMax: 4, pm: 3, pmMax: 3,
+    res: summonDef.res || { Neutre: 0, Terre: 0, Feu: 0, Eau: 0, Air: 0 },
+    el: summonDef.el || 'Neutre', stats: summonDef.stats || { force: 10, intel: 10, chance: 10, agi: 10, vita: 10, sag: 5 },
+    spells: summonDef.spells || [],
+    owner: owner, isMinion: true,
+    flatTurns: 0, flatBonus: 0, powerPctTurns: 0, powerPctBonus: 0,
+    slowTurns: 0, poisonTurns: 0, shield: 0, immobilized: false
+  };
+  owner.minions.push(m);
+  // Render minion unit
+  renderMinion(m);
+  sfx('cast');
+  log(owner.n + ' invoque <b>' + m.n + '</b> !', owner === S.player ? 'p' : 'c');
+  return m;
+}
+
+function removeMinion(m) {
+  if (m.el) { m.el.remove(); m.el = null; }
+  var idx = m.owner.minions.indexOf(m);
+  if (idx >= 0) m.owner.minions.splice(idx, 1);
+}
+
+function renderMinion(m) {
+  if (m.el) m.el.remove();
+  var el = document.createElement('div');
+  el.className = 'unit minion';
+  el.innerHTML = '<span class="uIco">' + (m.icon || '🐾') + '</span><div class="hpbar"><i></i></div><div class="hplabel"></div>';
+  var wrap = document.getElementById('gridWrap');
+  wrap.appendChild(el);
+  m.el = el;
+  placeUnit(el, m.x, m.y);
+  setUnitHp(el, m.hp, m.maxHp);
+}
+
+function refreshMinions() {
+  var all = [];
+  if (S.player.minions) all = all.concat(S.player.minions);
+  if (S.bot.minions) all = all.concat(S.bot.minions);
+  for (var i = all.length - 1; i >= 0; i--) {
+    if (all[i].hp <= 0) removeMinion(all[i]);
+    else if (all[i].el) {
+      placeUnit(all[i].el, all[i].x, all[i].y);
+      setUnitHp(all[i].el, all[i].hp, all[i].maxHp);
+    }
+  }
+}
+
+function minionTurn(owner) {
+  if (!owner.minions || !owner.minions.length) return;
+  var enemy = owner === S.player ? S.bot : S.player;
+  for (var i = 0; i < owner.minions.length; i++) {
+    var m = owner.minions[i];
+    if (m.hp <= 0) continue;
+    m.pa = m.paMax; m.pm = m.pmMax;
+    
+    // Move toward enemy
+    var reach = reachCosts(m.x, m.y, m.pm, enemy);
+    var bestD = dist(m, enemy), bestPos = [m.x, m.y];
+    for (var k in reach) {
+      var c = k.split(','), cx = parseInt(c[0],10), cy = parseInt(c[1],10);
+      var nd = Math.abs(cx - enemy.x) + Math.abs(cy - enemy.y);
+      if (nd < bestD) { bestD = nd; bestPos = [cx, cy]; }
+    }
+    if (bestPos[0] !== m.x || bestPos[1] !== m.y) {
+      var pc = pathToCosts(m.x, m.y, bestPos[0], bestPos[1], m.pm, enemy);
+      if (pc && pc.path.length) {
+        var last = pc.path[Math.min(m.pm, pc.path.length) - 1];
+        m.x = last[0]; m.y = last[1]; m.pm -= pc.cost;
+      }
+    }
+    
+    // Attack if adjacent
+    if (dist(m, enemy) <= 1) {
+      var dmg = rand(10, 18);
+      dmg = Math.round(dmg * (1 + (m.stats.force || 0) / 100));
+      var dmgRes = applyDamage(enemy, dmg, m.el || 'Neutre');
+      sfx('hit');
+      animImpact(enemy.x, enemy.y, m.el || 'Neutre');
+      bounceUnit(enemy === S.player ? unitP : unitB);
+      showDmg(enemy, enemy.x, enemy.y, '-' + dmgRes.d, null);
+      log(m.n + ' attaque ' + enemy.n + ' : <b>' + dmgRes.d + ' dégâts</b> !', m.owner === S.player ? 'p' : 'c');
+    }
+    renderMinion(m);
+  }
+  refreshMinions();
+  render();
 }
 function newGame() {
   clearTurnTimers();
@@ -861,6 +982,7 @@ function endPlayerTurn() {
   if (S.bot.subRangeTurns > 0) S.bot.subRangeTurns--;
   busy = true;
   S.phase = 'move'; S.spell = null;
+  minionTurn(S.player);
   log('<span class="t">— Fin de ton tour —</span> ' + S.bot.n + ' réfléchit…', 'c');
   render();
   later(botTurn, 800);
@@ -945,6 +1067,17 @@ function resolveSpell(caster, spell, tx, ty) {
       log('<span class="' + whoCls + '">' + caster.n + '</span> lance <b>' + spell.i + ' ' + spell.n + '</b> (' + spell.cost + ' PA) : +2 de portée pendant 3 tours !');
       render();
     }
+    if (caster.pa >= spell.cost) S.spell = spell;
+    else S.spell = null;
+    return true;
+  }
+  if (spell.type === 'summon') {
+    var sd = spell.summon;
+    var m = summonMinion(caster, sd);
+    if (m) {
+      log('<span class="' + whoCls + '">' + caster.n + '</span> lance <b>' + spell.i + ' ' + spell.n + '</b> (' + spell.cost + ' PA) : invoque ' + m.n + ' !');
+    }
+    render();
     if (caster.pa >= spell.cost) S.spell = spell;
     else S.spell = null;
     return true;
@@ -1518,6 +1651,7 @@ function endBotTurn() {
   if (S.player.paDodgeDownTurns > 0) S.player.paDodgeDownTurns--;
   if (S.player.subRangeTurns > 0) S.player.subRangeTurns--;
   S.round++;
+  minionTurn(S.bot);
   busy = false;
   playerTurn();
 }
