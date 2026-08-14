@@ -26,8 +26,8 @@ var CLASSES = {
       { id: 'tempete', n: 'Tempête de Puissance', i: '🌩️', lvl: 60, cost: 3, min: 3, max: 5, d: [12,15], el: 'Feu', los: true, type: 'dmg', desc: 'Rafale Feu' },
       { id: 'celeste', n: 'Épée Céleste', i: '✨', lvl: 70, cost: 4, min: 0, max: 4, d: [8,12], el: 'Air', los: true, type: 'dmg', aoe: 1, desc: 'Dégâts Air en zone (rayon 1)' },
       { id: 'concentration', n: 'Concentration', i: '🎯', lvl: 80, cost: 2, min: 1, max: 1, d: [4,7], el: 'Terre', los: true, type: 'dmg', desc: 'Frappe Terre rapide' },
-      { id: 'epeedeiop', n: 'Épée de Iop', i: '🗡️', lvl: 90, cost: 4, min: 1, max: 4, d: [7,12], el: 'Terre', los: true, type: 'dmg', desc: "La grande frappe de l'Iop" },
-      { id: 'colere', n: 'Colère de Iop', i: '😡', lvl: 100, cost: 6, min: 1, max: 1, d: [16,22], el: 'Terre', los: true, type: 'dmg', desc: "Le coup ultime de l'Iop (7 PA en 1.29, 6 ici)" }
+      { id: 'epeedeiop', n: 'Épée de Iop', i: '🗡️', lvl: 90, cost: 5, min: 1, max: 4, d: [7,12], el: 'Terre', los: true, type: 'dmg', desc: "La grande frappe de l'Iop" },
+      { id: 'colere', n: 'Colère de Iop', i: '😡', lvl: 100, cost: 7, min: 1, max: 1, d: [16,22], el: 'Terre', los: true, type: 'dmg', desc: "Le coup ultime de l'Iop (7 PA en 1.29)" }
     ] },
   cra: { n: 'Cra', icon: '🏹', img: 'clofus.webp', hp: 300, el: 'Air', mainStat: 'agi',
     stats: { force: 10, intel: 10, chance: 10, agi: 35, vita: 30, sag: 15 },
