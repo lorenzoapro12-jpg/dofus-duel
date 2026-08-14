@@ -210,9 +210,9 @@ function dijkstra(sx, sy, maxPm, enemy) {
       if (Math.abs(cx - enemy.x) + Math.abs(cy - enemy.y) === 1 ||
           Math.abs(nx - enemy.x) + Math.abs(ny - enemy.y) === 1) {
         var enAgi = (enemy.stats && enemy.stats.agi) || 0;
-        // L'agilité du déplaceur est dans S (pour le bot c'est S.bot, pour le joueur c'est S.player)
-        // On utilise une valeur par défaut de 30 si pas dispo
-        var myAgi = 30;
+        // L'agilité du déplaceur : S.player si on calcule pour le joueur, S.bot sinon
+        var myAgi = (S && S.turn === 'p' && S.player) ? (S.player.stats && S.player.stats.agi) || 30
+                  : (S.bot && S.bot.stats && S.bot.stats.agi) || 30;
         mc = Math.max(1, Math.round(1 + enAgi / (myAgi + 50)));
         if (mc > 3) mc = 3; // plafond à 3 PM
       }
@@ -1113,9 +1113,10 @@ function endPlayerTurn() {
     S.player.vitaTurns--;
     if (!S.player.vitaTurns) { S.player.maxHp -= S.player.vitaBonus; S.player.hp = Math.min(S.player.hp, S.player.maxHp); }
   }
-  if (S.bot.vulnTurns > 0) S.bot.vulnTurns--;
-  if (S.bot.paDodgeDownTurns > 0) S.bot.paDodgeDownTurns--;
-  if (S.bot.subRangeTurns > 0) S.bot.subRangeTurns--;
+  // Debuffs subis par le JOUEUR (posés par le bot) — le joueur a fini son tour
+  if (S.player.vulnTurns > 0) S.player.vulnTurns--;
+  if (S.player.paDodgeDownTurns > 0) S.player.paDodgeDownTurns--;
+  if (S.player.subRangeTurns > 0) S.player.subRangeTurns--;
   busy = true;
   S.phase = 'move'; S.spell = null;
   minionTurn(S.player);
@@ -1153,7 +1154,7 @@ function resolveSpell(caster, spell, tx, ty) {
   }
   // Échec critique (Dofus 1.29)
   if (spell.critFailRate && Math.random() * 100 < spell.critFailRate) {
-    log('<span class=\"' + whoCls + '\">💥 ' + caster.n + '</span> rate <b>' + spell.n + '</b> — échec critique !', whoCls);
+    log('<span class="' + whoCls + '">💥 ' + caster.n + '</span> rate <b>' + spell.n + '</b> — échec critique !', whoCls);
     sfx('error');
     showMsg(caster.x, caster.y, '💥 ÉCHEC');
     if (spell.endsTurnOnFailure) { caster.pa = 0; caster.pm = 0; }
@@ -1366,8 +1367,13 @@ function resolveSpell(caster, spell, tx, ty) {
         (calc.crit ? ' <span style="color:#ff6b6b">CRITIQUE !</span>' : '') + extra + '.');
     if (vict.hp <= 0) {
       vict.hp = 0;
-      endGame(vict === S.player ? S.bot : S.player);
-      return true;
+      // Un minion qui meurt ne termine PAS le duel — seul le héros compte
+      if (vict.isMinion) {
+        removeMinion(vict);
+      } else {
+        endGame(vict === S.player ? S.bot : S.player);
+        return true;
+      }
     }
   }
   if (caster.pa >= spell.cost) S.spell = spell;
@@ -1805,9 +1811,10 @@ function endBotTurn() {
     S.bot.vitaTurns--;
     if (!S.bot.vitaTurns) { S.bot.maxHp -= S.bot.vitaBonus; S.bot.hp = Math.min(S.bot.hp, S.bot.maxHp); }
   }
-  if (S.player.vulnTurns > 0) S.player.vulnTurns--;
-  if (S.player.paDodgeDownTurns > 0) S.player.paDodgeDownTurns--;
-  if (S.player.subRangeTurns > 0) S.player.subRangeTurns--;
+  // Debuffs subis par le BOT (posés par le joueur) — le bot a fini son tour
+  if (S.bot.vulnTurns > 0) S.bot.vulnTurns--;
+  if (S.bot.paDodgeDownTurns > 0) S.bot.paDodgeDownTurns--;
+  if (S.bot.subRangeTurns > 0) S.bot.subRangeTurns--;
   S.round++;
   minionTurn(S.bot);
   busy = false;
