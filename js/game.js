@@ -97,6 +97,7 @@ function formatSpell(sp) {
     else if (sp.self === 'critUp') parts.push('+15% coups critiques et +20% dégâts pendant 3 tours');
     else if (sp.self === 'vita') parts.push('+' + sp.vita.v + ' PV max pendant ' + sp.vita.turns + ' tours');
     else if (sp.self === 'rangeUp') parts.push('+2 portée pendant 3 tours');
+    else if (sp.self === 'shield') parts.push('🛡️ +' + sp.shield.v + ' bouclier (absorbe les dégâts)');
   } else if (sp.type === 'push') {
     parts.push('💨 repousse de ' + sp.push + (sp.push > 1 ? ' cases' : ' case'));
   } else if (sp.type === 'tp') {
@@ -360,12 +361,27 @@ function buildGrid() {
   unitB.className = 'unit uB';
   unitB.innerHTML = '<span class="uIco"></span><div class="hpbar"><i></i></div><div class="hplabel"></div>';
   var wrap = document.getElementById('gridWrap');
+  // Wrapper interne : contient le SVG + les unités, même origine de coordonnées.
+  // Sans ce wrapper, le border 3px du SVG décale les unités (positionnées en % de gridWrap)
+  // par rapport au viewBox → personnages décalés de leur case.
+  var inner = document.createElement('div');
+  inner.id = 'gridInner';
+  inner.style.position = 'relative';
+  wrap.appendChild(inner);
+  inner.appendChild(g);
+  wrap = inner;
   wrap.appendChild(unitP); wrap.appendChild(unitB);
   
   // Calque FX pour les animations de sorts
   var fxGroup = document.createElementNS(ns, 'g');
   fxGroup.setAttribute('id', 'fxLayer');
   g.appendChild(fxGroup);
+}
+function gridRoot() {
+  // Les unités/FX sont positionnés en % par rapport au conteneur interne
+  // (même origine que le viewBox SVG) pour éviter le décalage du border.
+  var inner = document.getElementById('gridInner');
+  return inner || document.getElementById('gridWrap');
 }
 function placeUnit(unit, x, y) {
   unit.style.left = isoPctX(x, y);
@@ -670,7 +686,7 @@ function render() {
       }
     }
   }
-  var wrapEl = document.getElementById('gridWrap');
+  var wrapEl = gridRoot();
   var oldLabels = wrapEl.querySelectorAll('.costLabel');
   for (var li = 0; li < oldLabels.length; li++) oldLabels[li].remove();
   for (y = 0; y < ROWS; y++) {
@@ -828,7 +844,7 @@ function showDmg(unit, x, y, text, cls) {
   d.textContent = text;
   d.style.left = isoPctX(x, y);
   d.style.top = isoPctY(x, y, -40);
-  document.getElementById('gridWrap').appendChild(d);
+  gridRoot().appendChild(d);
   setTimeout(function () { if (d.parentNode) d.parentNode.removeChild(d); }, 1000);
 }
 function showMsg(x, y, text) {
@@ -837,7 +853,7 @@ function showMsg(x, y, text) {
   d.textContent = text;
   d.style.left = isoPctX(x, y);
   d.style.top = isoPctY(x, y, -34);
-  document.getElementById('gridWrap').appendChild(d);
+  gridRoot().appendChild(d);
   setTimeout(function () { if (d.parentNode) d.parentNode.removeChild(d); }, 1200);
 }
 function flashCell(x, y) {
@@ -980,7 +996,12 @@ function summonMinion(owner, summonDef) {
     spells: summonDef.spells || [],
     owner: owner, isMinion: true,
     flatTurns: 0, flatBonus: 0, powerPctTurns: 0, powerPctBonus: 0,
-    slowTurns: 0, poisonTurns: 0, shield: 0, immobilized: false
+    critUpTurns: 0, critUpBonus: 0,
+    rangeUpTurns: 0, rangeUpBonus: 2,
+    vitaTurns: 0, vitaBonus: 0,
+    paDodgeDownTurns: 0, subRangeTurns: 0, subRangeBonus: 2,
+    vulnTurns: 0, vulnPct: 0,
+    slowTurns: 0, poisonTurns: 0, poisonDmg: 0, shield: 0, immobilized: false
   };
   owner.minions.push(m);
   // Render minion unit
@@ -991,19 +1012,19 @@ function summonMinion(owner, summonDef) {
 }
 
 function removeMinion(m) {
-  if (m.el) { m.el.remove(); m.el = null; }
+  if (m.domEl) { m.domEl.remove(); m.domEl = null; }
   var idx = m.owner.minions.indexOf(m);
   if (idx >= 0) m.owner.minions.splice(idx, 1);
 }
 
 function renderMinion(m) {
-  if (m.el) m.el.remove();
+  if (m.domEl) m.domEl.remove();
   var el = document.createElement('div');
   el.className = 'unit minion';
   el.innerHTML = '<span class="uIco">' + (m.icon || '🐾') + '</span><div class="hpbar"><i></i></div><div class="hplabel"></div>';
-  var wrap = document.getElementById('gridWrap');
+  var wrap = gridRoot();
   wrap.appendChild(el);
-  m.el = el;
+  m.domEl = el;
   placeUnit(el, m.x, m.y);
   setUnitHp(el, m.hp, m.maxHp);
 }
@@ -1014,9 +1035,9 @@ function refreshMinions() {
   if (S.bot.minions) all = all.concat(S.bot.minions);
   for (var i = all.length - 1; i >= 0; i--) {
     if (all[i].hp <= 0) removeMinion(all[i]);
-    else if (all[i].el) {
-      placeUnit(all[i].el, all[i].x, all[i].y);
-      setUnitHp(all[i].el, all[i].hp, all[i].maxHp);
+    else if (all[i].domEl) {
+      placeUnit(all[i].domEl, all[i].x, all[i].y);
+      setUnitHp(all[i].domEl, all[i].hp, all[i].maxHp);
     }
   }
 }
@@ -1032,6 +1053,14 @@ function minionTurn(owner) {
     // Move toward enemy
     var reach = reachCosts(m.x, m.y, m.pm, enemy);
     var bestD = dist(m, enemy), bestPos = [m.x, m.y];
+    // Portée max d'attaque du minion (sort le plus long, sinon mêlée 1)
+    var atkRange = 1;
+    if (m.spells && m.spells.length) {
+      for (var si = 0; si < m.spells.length; si++) {
+        var ss = m.spells[si];
+        if (ss.type === 'dmg' && ss.max > atkRange) atkRange = ss.max;
+      }
+    }
     for (var k in reach) {
       var c = k.split(','), cx = parseInt(c[0],10), cy = parseInt(c[1],10);
       var nd = Math.abs(cx - enemy.x) + Math.abs(cy - enemy.y);
@@ -1045,8 +1074,30 @@ function minionTurn(owner) {
       }
     }
     
-    // Attack if adjacent
-    if (dist(m, enemy) <= 1) {
+    // Attaque : utilise les sorts du minion si dispo, sinon mêlée de base
+    var d = dist(m, enemy);
+    var usedSpell = false;
+    if (m.spells && m.spells.length) {
+      for (var sj = 0; sj < m.spells.length; sj++) {
+        var sp = m.spells[sj];
+        if (m.pa < sp.cost) continue;
+        if (sp.type === 'dmg' && d >= sp.min && d <= sp.max &&
+            (!sp.los || los(m.x, m.y, enemy.x, enemy.y))) {
+          m.pa -= sp.cost;
+          var calc = computeDmg(m, sp);
+          var dmgRes = applyDamage(enemy, calc.d, sp.el || m.el || 'Neutre');
+          sfx(calc.crit ? 'crit' : 'hit');
+          if (d > 1) animProjectile(m.x, m.y, enemy.x, enemy.y, sp.el || 'Neutre');
+          animImpact(enemy.x, enemy.y, sp.el || 'Neutre');
+          bounceUnit(enemy === S.player ? unitP : unitB);
+          showDmg(enemy, enemy.x, enemy.y, '-' + dmgRes.d, calc.crit ? 'crit' : null);
+          log(m.n + ' lance <b>' + sp.n + '</b> sur ' + enemy.n + ' : <b>' + dmgRes.d + ' dégâts</b> !', m.owner === S.player ? 'p' : 'c');
+          usedSpell = true;
+          break;
+        }
+      }
+    }
+    if (!usedSpell && d <= 1) {
       var dmg = rand(10, 18);
       dmg = Math.round(dmg * (1 + (m.stats.force || 0) / 100));
       var dmgRes = applyDamage(enemy, dmg, m.el || 'Neutre');
@@ -1212,6 +1263,14 @@ function resolveSpell(caster, spell, tx, ty) {
       sfx('buff'); animBuff(caster.x, caster.y);
       showMsg(caster.x, caster.y, '👁️ +2');
       log('<span class="' + whoCls + '">' + caster.n + '</span> lance <b>' + spell.i + ' ' + spell.n + '</b> (' + spell.cost + ' PA) : +2 de portée pendant 3 tours !');
+      render();
+    } else if (spell.self === 'shield') {
+      // Bouclier 1.29 : absorbe les prochains dégâts (armures Féca)
+      if (caster.shield > 0) { log('Bouclier déjà actif !', whoCls); sfx('error'); caster.pa += spell.cost; return false; }
+      caster.shield = spell.shield.v;
+      sfx('shield'); animBuff(caster.x, caster.y);
+      showMsg(caster.x, caster.y, '🛡️ +' + spell.shield.v);
+      log('<span class="' + whoCls + '">' + caster.n + '</span> lance <b>' + spell.i + ' ' + spell.n + '</b> (' + spell.cost + ' PA) : +' + spell.shield.v + ' bouclier !');
       render();
     }
     if (caster.pa >= spell.cost) S.spell = spell;
@@ -1712,6 +1771,9 @@ function botAct() {
       }
       if (sp.self === 'vita' && !S.bot.vitaTurns && hpRatio < 0.6) {
         if (55 > bestScore) { bestScore = 55; best = sp; }
+      }
+      if (sp.self === 'shield' && !S.bot.shield && hpRatio < 0.75) {
+        if (48 > bestScore) { bestScore = 48; best = sp; }
       }
       if (sp.self === 'powerPct' && !S.bot.powerPctTurns) {
         var okDist = S.bot.style === 'ranged' ? (d >= 2 && d <= fireHi) : (d <= 3);
